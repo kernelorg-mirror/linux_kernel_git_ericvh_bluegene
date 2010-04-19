@@ -124,8 +124,13 @@ struct sk_buff_head {
 
 struct sk_buff;
 
+#if defined(CONFIG_BGP)
+/* Set 'high' to give scope for ZRL 'soft Iwarp' over the BlueGene torus */
+#define MAX_SKB_FRAGS 18
+#else
 /* To allow 64K frame to be packed as single skb without frag_list */
 #define MAX_SKB_FRAGS (65536/PAGE_SIZE + 2)
+#endif
 
 typedef struct skb_frag_struct skb_frag_t;
 

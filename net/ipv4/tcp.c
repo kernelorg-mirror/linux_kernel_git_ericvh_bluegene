@@ -271,6 +271,7 @@
 #include <net/ip.h>
 #include <net/netdma.h>
 #include <net/sock.h>
+#include <net/tcp_hiatus.h>
 
 #include <asm/uaccess.h>
 #include <asm/ioctls.h>
@@ -292,6 +293,17 @@ atomic_t tcp_memory_allocated;	/* Current allocated memory. */
 EXPORT_SYMBOL(tcp_memory_allocated);
 
 /*
+ * Statistics about the number of waits in TCP for various reasons
+ */
+#if defined(CONFIG_TCP_HIATUS_COUNTS)
+int tcp_hiatus_counts[k_tcp_hiatus_reasons] ;
+EXPORT_SYMBOL(tcp_hiatus_counts) ;
+#endif
+#if defined(CONFIG_BGP_TORUS_DIAGNOSTICS)
+int tcp_scattergather_frag_limit  ;
+EXPORT_SYMBOL(tcp_scattergather_frag_limit) ;
+#endif
+/*
  * Current number of TCP sockets.
  */
 struct percpu_counter tcp_sockets_allocated;
@@ -305,6 +317,7 @@ struct tcp_splice_state {
 	size_t len;
 	unsigned int flags;
 };
+
 
 /*
  * Pressure flag: try to collapse.
@@ -640,8 +653,13 @@ struct sk_buff *sk_stream_alloc_skb(struct sock *sk, int size, gfp_t gfp)
 {
 	struct sk_buff *skb;
 
+#if defined(CONFIG_BLUEGENE)
+	/* Desire to have the TCP header quadword-aligned.  */
+	size = ALIGN(size, 16);
+#else
 	/* The TCP header must be at least 32-bit aligned.  */
 	size = ALIGN(size, 4);
+#endif
 
 	skb = alloc_skb_fclone(size + sk->sk_prot->max_header, gfp);
 	if (skb) {
@@ -710,10 +728,18 @@ new_segment:
 
 		i = skb_shinfo(skb)->nr_frags;
 		can_coalesce = skb_can_coalesce(skb, i, page, offset);
+/* #if defined(CONFIG_BGP_TORUS_DIAGNOSTICS) */
+/* 		// Scatter-gather in torus driver not handling well if we have more than one frag */
+/* 		if (!can_coalesce && ((i > tcp_scattergather_frag_limit) || (i >= MAX_SKB_FRAGS))) { */
+/* 			tcp_mark_push(tp, skb); */
+/* 			goto new_segment; */
+/* 		} */
+/* #else */
 		if (!can_coalesce && i >= MAX_SKB_FRAGS) {
 			tcp_mark_push(tp, skb);
 			goto new_segment;
 		}
+/* #endif */
 		if (!sk_wmem_schedule(sk, copy))
 			goto wait_for_memory;
 
@@ -753,8 +779,12 @@ new_segment:
 		continue;
 
 wait_for_sndbuf:
+
+		increment_tcp_hiatus_count(k_tcp_wait_for_sndbuf) ;
 		set_bit(SOCK_NOSPACE, &sk->sk_socket->flags);
 wait_for_memory:
+
+		increment_tcp_hiatus_count(k_tcp_wait_for_memory) ;
 		if (copied)
 			tcp_push(sk, flags & ~MSG_MORE, mss_now, TCP_NAGLE_PUSH);
 
@@ -999,8 +1029,10 @@ new_segment:
 			continue;
 
 wait_for_sndbuf:
+			increment_tcp_hiatus_count(k_tcp_wait_for_sndbuf) ;
 			set_bit(SOCK_NOSPACE, &sk->sk_socket->flags);
 wait_for_memory:
+			increment_tcp_hiatus_count(k_tcp_wait_for_memory) ;
 			if (copied)
 				tcp_push(sk, flags & ~MSG_MORE, mss_now, TCP_NAGLE_PUSH);
 

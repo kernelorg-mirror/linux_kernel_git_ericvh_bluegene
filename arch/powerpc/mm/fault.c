@@ -101,6 +101,73 @@ static int store_updates_sp(struct pt_regs *regs)
 	return 0;
 }
 
+#ifdef CONFIG_BGP
+/* The icbi instruction does not broadcast to all cpus in the ppc450 processor used
+ * by Blue Gene/P.  It is unlikely this problem will be exhibited in other processors
+ * so this remains ifdef'ed for BGP specifically.
+ *
+ * We deal with this by marking executable pages either writable, or executable, but
+ * never both.  The permissions will fault back and forth if the thread is actively
+ * writing to executable sections.  Each time we fault to become executable we flush
+ * the dcache into icache on all cpus.
+ */
+struct bgp_fixup_parm {
+	struct page		*page;
+	unsigned long		address;
+	struct vm_area_struct	*vma;
+};
+static void bgp_fixup_cache_tlb(void *parm)
+{
+	struct bgp_fixup_parm	*p = parm;
+
+	if (!PageHighMem(p->page))
+		flush_dcache_icache_page(p->page);
+	local_flush_tlb_page(p->vma, p->address);
+}
+
+static void bgp_fixup_access_perms(struct vm_area_struct *vma,
+				  unsigned long address,
+				  int is_write, int is_exec)
+{
+	struct mm_struct *mm = vma->vm_mm;
+	pte_t *ptep = NULL;
+	pmd_t *pmdp;
+
+	if (get_pteptr(mm, address, &ptep, &pmdp)) {
+		spinlock_t *ptl = pte_lockptr(mm, pmdp);
+		pte_t old;
+
+		spin_lock(ptl);
+		old = *ptep;
+		if (pte_present(old)) {
+			struct page *page = pte_page(old);
+
+			if (is_exec) {
+				struct bgp_fixup_parm param = {
+					.page		= page,
+					.address	= address,
+					.vma		= vma,
+				};
+				pte_update(ptep, _PAGE_HWWRITE, 0);
+				on_each_cpu(bgp_fixup_cache_tlb, &param, 1);
+				pte_update(ptep, 0, _PAGE_HWEXEC);
+				pte_unmap_unlock(ptep, ptl);
+				return;
+			}
+			if (is_write &&
+			    (pte_val(old) & _PAGE_RW) &&
+			    (pte_val(old) & _PAGE_DIRTY) &&
+			    !(pte_val(old) & _PAGE_HWWRITE)) {
+				pte_update(ptep, _PAGE_HWEXEC, _PAGE_HWWRITE);
+			}
+		}
+		if (!pte_same(old, *ptep))
+			flush_tlb_page(vma, address);
+		pte_unmap_unlock(ptep, ptl);
+	}
+}
+#endif
+
 /*
  * For 600- and 800-family processors, the error_code parameter is DSISR
  * for a data fault, SRR1 for an instruction fault. For 400-family processors
@@ -266,6 +333,7 @@ good_area:
 		     !(vma->vm_flags & (VM_READ | VM_WRITE))))
 			goto bad_area;
 #else
+#ifndef CONFIG_BGP
 		pte_t *ptep;
 		pmd_t *pmdp;
 
@@ -291,6 +359,7 @@ good_area:
 			}
 			pte_unmap_unlock(ptep, ptl);
 		}
+#endif
 #endif
 	/* a write */
 	} else if (is_write) {
@@ -330,6 +399,12 @@ good_area:
 #endif
 	} else
 		current->min_flt++;
+
+#ifdef CONFIG_BGP
+	/* Fixup _PAGE_HWEXEC and _PAGE_HWWRITE if necessary */
+	bgp_fixup_access_perms(vma, address, is_write, is_exec);
+#endif
+
 	up_read(&mm->mmap_sem);
 	return 0;
 

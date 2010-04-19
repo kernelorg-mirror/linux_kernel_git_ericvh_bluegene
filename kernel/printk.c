@@ -49,7 +49,10 @@ void asmlinkage __attribute__((weak)) early_printk(const char *fmt, ...)
 
 /* We show everything that is MORE important than this.. */
 #define MINIMUM_CONSOLE_LOGLEVEL 1 /* Minimum loglevel we let people use */
-#define DEFAULT_CONSOLE_LOGLEVEL 7 /* anything MORE serious than KERN_DEBUG */
+/*  Noisy kernel 7 */
+/* #define DEFAULT_CONSOLE_LOGLEVEL 7 */ /* anything MORE serious than KERN_DEBUG */
+/*  Quiet kernel 3 */
+#define DEFAULT_CONSOLE_LOGLEVEL 3 /* KERN_ERR */
 
 DECLARE_WAIT_QUEUE_HEAD(log_wait);
 
@@ -698,9 +701,10 @@ asmlinkage int vprintk(const char *fmt, va_list args)
 
 				t = cpu_clock(printk_cpu);
 				nanosec_rem = do_div(t, 1000000000);
-				tlen = sprintf(tbuf, "[%5lu.%06lu] ",
+				tlen = sprintf(tbuf, "[%5lu.%06lu]:%x ",
 						(unsigned long) t,
-						nanosec_rem / 1000);
+						nanosec_rem / 1000,
+						printk_cpu);
 
 				for (tp = tbuf; tp < tbuf + tlen; tp++)
 					emit_log_char(*tp);
@@ -713,7 +717,10 @@ asmlinkage int vprintk(const char *fmt, va_list args)
 
 		emit_log_char(*p);
 		if (*p == '\n')
+			{
 			new_text_line = 1;
+				if( p[1] == '\n' ) p++ ; /* Don't double-line-space */
+			};
 	}
 
 	/*

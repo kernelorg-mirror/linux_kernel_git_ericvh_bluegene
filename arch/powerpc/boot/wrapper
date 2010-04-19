@@ -222,6 +222,11 @@ asp834x-redboot)
     platformo="$object/fixed-head.o $object/redboot-83xx.o"
     binary=y
     ;;
+bgp)
+	platformo="--section-start bgstart=0 $object/fixed-head.o $object/bgp.o"
+	link_address='0x00800000'
+    ;;
+
 esac
 
 vmz="$tmpdir/`basename \"$kernel\"`.$ext"

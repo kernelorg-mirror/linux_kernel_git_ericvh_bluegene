@@ -8,6 +8,9 @@
 
 #define PPC44x_MMUCR_TID	0x000000ff
 #define PPC44x_MMUCR_STS	0x00010000
+#define PPC44x_MMUCR_SWOA	0x01000000
+#define PPC44x_MMUCR_U1TE	0x00400000
+#define PPC44x_MMUCR_U2SWOAE	0x00200000
 
 #define	PPC44x_TLB_PAGEID	0
 #define	PPC44x_TLB_XLAT		1
@@ -32,9 +35,11 @@
 
 /* Storage attribute and access control fields */
 #define PPC44x_TLB_ATTR_MASK	0x0000ff80
+#define PPC44x_TLB_WL1          0x00100000	/* Write-through L1 */
 #define PPC44x_TLB_U0		0x00008000      /* User 0 */
 #define PPC44x_TLB_U1		0x00004000      /* User 1 */
 #define PPC44x_TLB_U2		0x00002000      /* User 2 */
+#define PPC44x_TLB_SWOA		PPC44x_TLB_U2	/* SWOA when MMUCR U2SWOAE is enabled */
 #define PPC44x_TLB_U3		0x00001000      /* User 3 */
 #define PPC44x_TLB_W		0x00000800      /* Caching is write-through */
 #define PPC44x_TLB_I		0x00000400      /* Caching is inhibited */
@@ -67,7 +72,12 @@ typedef struct {
 #endif /* !__ASSEMBLY__ */
 
 #ifndef CONFIG_PPC_EARLY_DEBUG_44x
+#ifndef CONFIG_BGP
 #define PPC44x_EARLY_TLBS	1
+#else
+/* Bluegene maps firmware with an early TLB. */
+#define PPC44x_EARLY_TLBS	2
+#endif
 #else
 #define PPC44x_EARLY_TLBS	2
 #define PPC44x_EARLY_DEBUG_VIRTADDR	(ASM_CONST(0xf0000000) \

@@ -170,7 +170,7 @@ config TMPFS_POSIX_ACL
 
 config HUGETLBFS
 	bool "HugeTLB file system support"
-	depends on X86 || IA64 || PPC64 || SPARC64 || (SUPERH && MMU) || \
+	depends on X86 || IA64 || PPC64 || SPARC64 || (SUPERH && MMU) || BLUEGENE || \
 		   (S390 && 64BIT) || BROKEN
 	help
 	  hugetlbfs is a filesystem backing for HugeTLB pages, based on

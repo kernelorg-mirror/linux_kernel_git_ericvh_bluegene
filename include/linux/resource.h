@@ -62,7 +62,11 @@ struct rlimit {
  * GPG2 wants 64kB of mlocked memory, to make sure pass phrases
  * and other sensitive information are never written to disk.
  */
+#if defined(CONFIG_INFINIBAND)
+#define MLOCK_LIMIT (10*1024*PAGE_SIZE)
+#else
 #define MLOCK_LIMIT	((PAGE_SIZE > 64*1024) ? PAGE_SIZE : 64*1024)
+#endif
 
 /*
  * Due to binary compatibility, the actual resource numbers

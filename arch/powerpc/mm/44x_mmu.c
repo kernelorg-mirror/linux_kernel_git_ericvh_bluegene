@@ -64,6 +64,12 @@ static void __init ppc44x_update_tlb_hwater(void)
 static void __init ppc44x_pin_tlb(unsigned int virt, unsigned int phys)
 {
 	unsigned int entry = tlb_44x_hwater--;
+	unsigned attrs = PPC44x_TLB_SW | PPC44x_TLB_SR | PPC44x_TLB_SX;
+#ifdef CONFIG_L1_WRITETHROUGH
+	attrs |= PPC44x_TLB_WL1 | PPC44x_TLB_SWOA | PPC44x_TLB_M;
+#else
+	attrs |= PPC44x_TLB_G;
+#endif
 
 	ppc44x_update_tlb_hwater();
 
@@ -72,7 +78,7 @@ static void __init ppc44x_pin_tlb(unsigned int virt, unsigned int phys)
 		"tlbwe	%1,%3,%5\n"
 		"tlbwe	%0,%3,%6\n"
 	:
-	: "r" (PPC44x_TLB_SW | PPC44x_TLB_SR | PPC44x_TLB_SX | PPC44x_TLB_G),
+	: "r" (attrs),
 	  "r" (phys),
 	  "r" (virt | PPC44x_TLB_VALID | PPC44x_TLB_256M),
 	  "r" (entry),

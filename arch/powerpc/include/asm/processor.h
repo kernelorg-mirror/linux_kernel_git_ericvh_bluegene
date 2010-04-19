@@ -14,8 +14,15 @@
 
 #ifdef CONFIG_VSX
 #define TS_FPRWIDTH 2
+#define TS_FPRALIGN
+#else
+#ifdef CONFIG_BGP
+#define TS_FPRWIDTH 2
+#define TS_FPRALIGN  __attribute__((aligned(16)))
 #else
 #define TS_FPRWIDTH 1
+#define TS_FPRALIGN
+#endif
 #endif
 
 #ifndef __ASSEMBLY__
@@ -95,7 +102,11 @@ extern struct task_struct *last_task_used_spe;
 /* This decides where the kernel will search for a free chunk of vm
  * space during mmap's.
  */
+#if defined(CONFIG_TASK_UNMAPPED_BASE)
+#define TASK_UNMAPPED_BASE	(CONFIG_TASK_UNMAPPED_BASE)
+#else
 #define TASK_UNMAPPED_BASE	(TASK_SIZE / 8 * 3)
+#endif
 #endif
 
 #ifdef CONFIG_PPC64
@@ -166,7 +177,7 @@ struct thread_struct {
 	unsigned long	dbcr1;
 #endif
 	/* FP and VSX 0-31 register set */
-	double		fpr[32][TS_FPRWIDTH];
+	double		fpr[32][TS_FPRWIDTH] TS_FPRALIGN;
 	struct {
 
 		unsigned int pad;
@@ -309,7 +320,7 @@ static inline void prefetchw(const void *x)
 
 #define spin_lock_prefetch(x)	prefetchw(x)
 
-#ifdef CONFIG_PPC64
+#if defined(CONFIG_PPC64) || defined(CONFIG_BGP)
 #define HAVE_ARCH_PICK_MMAP_LAYOUT
 #endif
 

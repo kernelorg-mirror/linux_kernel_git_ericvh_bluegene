@@ -125,7 +125,9 @@ ifeq ($(CONFIG_FUNCTION_TRACER),y)
 KBUILD_CFLAGS		+= -mno-sched-epilog
 endif
 
-cpu-as-$(CONFIG_4xx)		+= -Wa,-m405
+ifndef CONFIG_BGP
+cpu-as-$(CONFIG_4xx)		+= -Wa,-m450
+endif
 cpu-as-$(CONFIG_6xx)		+= -Wa,-maltivec
 cpu-as-$(CONFIG_POWER4)		+= -Wa,-maltivec
 cpu-as-$(CONFIG_E500)		+= -Wa,-me500
@@ -151,6 +153,7 @@ core-y				+= arch/powerpc/kernel/ \
 core-$(CONFIG_MATH_EMULATION)	+= arch/powerpc/math-emu/
 core-$(CONFIG_XMON)		+= arch/powerpc/xmon/
 core-$(CONFIG_KVM) 		+= arch/powerpc/kvm/
+core-$(CONFIG_BGP)      += arch/powerpc/syslib/bgdd/
 
 drivers-$(CONFIG_OPROFILE)	+= arch/powerpc/oprofile/
 

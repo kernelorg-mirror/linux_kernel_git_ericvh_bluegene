@@ -1384,7 +1384,9 @@ SYSCALL_DEFINE3(bind, int, fd, struct sockaddr __user *, umyaddr, int, addrlen)
  *	necessary for a listen, and if that works, we mark the socket as
  *	ready for listening.
  */
-
+#if defined(CONFIG_BGP_TORUS)
+extern int sysctl_bgp_torus_backlog_floor ;
+#endif
 SYSCALL_DEFINE2(listen, int, fd, int, backlog)
 {
 	struct socket *sock;
@@ -1396,6 +1398,10 @@ SYSCALL_DEFINE2(listen, int, fd, int, backlog)
 		somaxconn = sock_net(sock->sk)->core.sysctl_somaxconn;
 		if ((unsigned)backlog > somaxconn)
 			backlog = somaxconn;
+#if defined(CONFIG_BGP_TORUS)
+/*  Apps (particularly mpich2) sometimes set 'backlog' a long way too small for cloud computing */
+		if(backlog < sysctl_bgp_torus_backlog_floor ) backlog = sysctl_bgp_torus_backlog_floor ;
+#endif
 
 		err = security_socket_listen(sock, backlog);
 		if (!err)

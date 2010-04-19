@@ -29,7 +29,7 @@
 BEGIN_FTR_SECTION							\
 	b	2f;							\
 END_FTR_SECTION_IFSET(CPU_FTR_VSX);					\
-	REST_32FPRS(n,base);						\
+	REST_32FPRS(n,c,base);						\
 	b	3f;							\
 2:	REST_32VSRS(n,c,base);						\
 3:
@@ -38,13 +38,13 @@ END_FTR_SECTION_IFSET(CPU_FTR_VSX);					\
 BEGIN_FTR_SECTION							\
 	b	2f;							\
 END_FTR_SECTION_IFSET(CPU_FTR_VSX);					\
-	SAVE_32FPRS(n,base);						\
+	SAVE_32FPRS(n,c,base);						\
 	b	3f;							\
 2:	SAVE_32VSRS(n,c,base);						\
 3:
 #else
-#define REST_32FPVSRS(n,b,base)	REST_32FPRS(n, base)
-#define SAVE_32FPVSRS(n,b,base)	SAVE_32FPRS(n, base)
+#define REST_32FPVSRS(n,b,base)	REST_32FPRS(n,b,base)
+#define SAVE_32FPVSRS(n,b,base)	SAVE_32FPRS(n,b,base)
 #endif
 
 /*
