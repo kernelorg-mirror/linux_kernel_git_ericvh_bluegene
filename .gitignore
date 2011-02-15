@@ -64,3 +64,5 @@ ncscope.*
 *.orig
 *~
 \#*#
+
+arch/powerpc/include/zspi

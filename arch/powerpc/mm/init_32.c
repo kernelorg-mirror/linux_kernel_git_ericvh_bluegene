@@ -46,6 +46,16 @@
 
 #include "mmu_decl.h"
 
+#ifdef CONFIG_ZEPTO
+#include <linux/zepto_debug.h>
+#endif
+
+#ifdef CONFIG_ZEPTO_MEMORY
+/* Use bigmemsize command line parameter to change it  */
+unsigned long __bigmem_size=1024*1024*1024;
+int bgp4GB; /* =1 if BGP has 4GB of memory, otherwise we assume BGP memory size is 2GB */
+#endif
+
 #if defined(CONFIG_KERNEL_START_BOOL) || defined(CONFIG_LOWMEM_SIZE_BOOL)
 /* The ammount of lowmem must be within 0xF0000000 - KERNELBASE. */
 #if (CONFIG_LOWMEM_SIZE > (0xF0000000 - PAGE_OFFSET))
@@ -70,6 +80,7 @@ int boot_mapsize;
 unsigned long agp_special_page;
 EXPORT_SYMBOL(agp_special_page);
 #endif
+
 
 void MMU_init(void);
 
@@ -106,6 +117,21 @@ void MMU_setup(void)
 	if (strstr(cmd_line, "noltlbs")) {
 		__map_without_ltlbs = 1;
 	}
+
+#ifdef CONFIG_ZEPTO_MEMORY
+	{
+	    char* p;
+	    char* s;
+
+	    if( (s=strstr(cmd_line, "bigmemsize=")) ) {
+		p = s+strlen("bigmemsize=");
+		/* align __bigmem_size to 16 MB. zepto_bigmem.c uses
+		   TLBs from 1G to 16M of size */
+		__bigmem_size = _ALIGN(memparse(p, &p), 0x01000000);
+	    }
+	}
+#endif
+
 #ifdef CONFIG_DEBUG_PAGEALLOC
 	__map_without_bats = 1;
 	__map_without_ltlbs = 1;
@@ -137,6 +163,33 @@ void __init MMU_init(void)
 		lmb_analyze();
 		printk(KERN_WARNING "Only using first contiguous memory region");
 	}
+
+#ifdef CONFIG_ZEPTO_MEMORY
+	{ 
+	    u64 oldDRAMsize = lmb_end_of_DRAM(); /* realDRAMsize - cns_size. check  boot/bgp.c */
+	    u64 newDRAMsize;
+	    
+	    if( oldDRAMsize > 0x80000000 ) bgp4GB=1;
+	    else bgp4GB=0;
+
+	    /* sanity check, make sure we leave at least  256 MB for the kernel 
+	       ZXXX: fix this when we support 1MB, 16MB TLBs  */
+	    
+	    if (__bigmem_size < 0x10000000) __bigmem_size = 0x10000000;  
+
+	    if( bgp4GB && (__bigmem_size > 0xd0000000) ) 
+		__bigmem_size = 0xd0000000;  /* 4 GB BG/P */
+	    else if (__bigmem_size > 0x70000000)
+		__bigmem_size = 0x70000000;  /* 2 GB BG/P*/
+
+	    if( bgp4GB)   newDRAMsize = (u64)0x100000000ULL - __bigmem_size;
+	    else          newDRAMsize = (u64) 0x80000000ULL - __bigmem_size;
+
+
+	    lmb_enforce_memory_limit(newDRAMsize);
+	    lmb_analyze();
+	}
+#endif
 
 	total_lowmem = total_memory = lmb_end_of_DRAM() - memstart_addr;
 	lowmem_end_addr = memstart_addr + total_lowmem;

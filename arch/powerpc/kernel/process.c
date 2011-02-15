@@ -50,6 +50,11 @@
 #endif
 #include <linux/kprobes.h>
 #include <linux/kdebug.h>
+#include <mm/mmu_decl.h>
+
+#ifdef CONFIG_ZEPTO_MEMORY
+#include <linux/zepto_task.h>
+#endif
 
 extern unsigned long _get_SP(void);
 
@@ -64,8 +69,14 @@ struct task_struct *last_task_used_spe = NULL;
  * Make sure the floating-point register state in the
  * the thread_struct is up to date for task tsk.
  */
+/* Does not need FP_SAVE_UNDER_MASK in this file, it is done more finely in fpu.S */
+/* #define FP_SAVE_UNDER_MASK */
 void flush_fp_to_thread(struct task_struct *tsk)
 {
+#if defined(FP_SAVE_UNDER_MASK)
+    unsigned long flags ;
+    local_irq_save(flags) ;
+#endif
 	if (tsk->thread.regs) {
 		/*
 		 * We need to disable preemption here because if we didn't,
@@ -91,10 +102,17 @@ void flush_fp_to_thread(struct task_struct *tsk)
 		}
 		preempt_enable();
 	}
+#if defined(FP_SAVE_UNDER_MASK)
+    local_irq_restore(flags) ;
+#endif
 }
 
 void enable_kernel_fp(void)
 {
+#if defined(FP_SAVE_UNDER_MASK)
+    unsigned long flags ;
+    local_irq_save(flags) ;
+#endif
 	WARN_ON(preemptible());
 
 #ifdef CONFIG_SMP
@@ -105,6 +123,9 @@ void enable_kernel_fp(void)
 #else
 	giveup_fpu(last_task_used_math);
 #endif /* CONFIG_SMP */
+#if defined(FP_SAVE_UNDER_MASK)
+    local_irq_restore(flags) ;
+#endif
 }
 EXPORT_SYMBOL(enable_kernel_fp);
 
@@ -303,6 +324,9 @@ struct task_struct *__switch_to(struct task_struct *prev,
 	unsigned long flags;
 	struct task_struct *last;
 
+#if defined(FP_SAVE_UNDER_MASK)
+    local_irq_save(flags) ;
+#endif
 #ifdef CONFIG_SMP
 	/* avoid complexity of lazy save/restore of fpu
 	 * by just saving it every time we switch out if
@@ -395,7 +419,9 @@ struct task_struct *__switch_to(struct task_struct *prev,
 	}
 #endif
 
-	local_irq_save(flags);
+#if !defined(FP_SAVE_UNDER_MASK)
+    local_irq_save(flags) ;
+#endif
 
 	account_system_vtime(current);
 	account_process_vtime(current);
@@ -407,6 +433,10 @@ struct task_struct *__switch_to(struct task_struct *prev,
 	 * of sync. Hard disable here.
 	 */
 	hard_irq_disable();
+	
+	if( IS_ZEPTO_TASK(current) )  {
+	    _tlbil_all();
+	}
 	last = _switch(old_thread, new_thread);
 
 	local_irq_restore(flags);

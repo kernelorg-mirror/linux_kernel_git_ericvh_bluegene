@@ -17,6 +17,10 @@
 #include <asm/processor.h>
 #include <asm/udbg.h>
 
+#ifdef CONFIG_PPC_EARLY_DEBUG_BGP
+#include <asm/bluegene.h>
+#endif
+
 void (*udbg_putc)(char c);
 int (*udbg_getc)(void);
 int (*udbg_getc_poll)(void);
@@ -59,9 +63,18 @@ void __init udbg_early_init(void)
 	udbg_init_40x_realmode();
 #elif defined(CONFIG_PPC_EARLY_DEBUG_CPM)
 	udbg_init_cpm();
+#elif defined(CONFIG_PPC_EARLY_DEBUG_BGP)
+        /* XXX: can't call bgp_init_cns() from here. 
+           need to invetigate. */
+        if(0) {
+	    extern void bgp_udbg_putc(char c);
+	    bgp_init_cns();
+	    udbg_putc = bgp_udbg_putc;
+	}
 #endif
 
-#ifdef CONFIG_PPC_EARLY_DEBUG
+// #ifdef CONFIG_PPC_EARLY_DEBUG
+#ifdef CONFIG_BLUEGENE_NOISY_BOOT
 	console_loglevel = 10;
 #endif
 }

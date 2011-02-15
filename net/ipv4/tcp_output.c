@@ -35,6 +35,7 @@
  */
 
 #include <net/tcp.h>
+#include <net/tcp_hiatus.h>
 
 #include <linux/compiler.h>
 #include <linux/module.h>
@@ -58,6 +59,15 @@ int sysctl_tcp_base_mss __read_mostly = 512;
 
 /* By default, RFC2861 behavior.  */
 int sysctl_tcp_slow_start_after_idle __read_mostly = 1;
+
+#if defined(CONFIG_TCP_CONGESTION_OVERRIDES)
+int sysctl_tcp_force_nodelay ;
+int sysctl_tcp_permit_cwnd ;
+int sysctl_tcp_max_cwnd = 1000 ;
+EXPORT_SYMBOL(sysctl_tcp_force_nodelay) ;
+EXPORT_SYMBOL(sysctl_tcp_permit_cwnd) ;
+EXPORT_SYMBOL(sysctl_tcp_max_cwnd) ;
+#endif
 
 static void tcp_event_new_data_sent(struct sock *sk, struct sk_buff *skb)
 {
@@ -1145,6 +1155,11 @@ static inline unsigned int tcp_cwnd_test(struct tcp_sock *tp,
 
 	in_flight = tcp_packets_in_flight(tp);
 	cwnd = tp->snd_cwnd;
+#if defined(CONFIG_TCP_CONGESTION_OVERRIDES)
+	cwnd =   (cwnd < sysctl_tcp_permit_cwnd)
+	       ? sysctl_tcp_permit_cwnd
+	       : ( ( cwnd > sysctl_tcp_max_cwnd) ? sysctl_tcp_max_cwnd : cwnd ) ;
+#endif
 	if (in_flight < cwnd)
 		return (cwnd - in_flight);
 
@@ -1212,6 +1227,11 @@ static inline int tcp_nagle_test(struct tcp_sock *tp, struct sk_buff *skb,
 
 	if (!tcp_nagle_check(tp, skb, cur_mss, nonagle))
 		return 1;
+
+#if defined(CONFIG_TCP_CONGESTION_OVERRIDES)
+	if (sysctl_tcp_force_nodelay)
+		return 1 ;
+#endif
 
 	return 0;
 }
@@ -1508,6 +1528,7 @@ static int tcp_mtu_probe(struct sock *sk)
 	return -1;
 }
 
+
 /* This routine writes packets to the network.  It advances the
  * send_head.  This happens as incoming acks open up the remote
  * window for us.
@@ -1534,6 +1555,7 @@ static int tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
 		/* Do MTU probing. */
 		result = tcp_mtu_probe(sk);
 		if (!result) {
+			increment_tcp_hiatus_count(k_tcp_defer_mtu_probe) ;
 			return 0;
 		} else if (result > 0) {
 			sent_pkts = 1;
@@ -1548,19 +1570,31 @@ static int tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
 
 		cwnd_quota = tcp_cwnd_test(tp, skb);
 		if (!cwnd_quota)
+			{
+				increment_tcp_hiatus_count(k_tcp_defer_cwnd_quota) ;
 			break;
+			}
 
 		if (unlikely(!tcp_snd_wnd_test(tp, skb, mss_now)))
+			{
+				increment_tcp_hiatus_count(k_tcp_defer_snd_wnd) ;
 			break;
+			}
 
 		if (tso_segs == 1) {
 			if (unlikely(!tcp_nagle_test(tp, skb, mss_now,
 						     (tcp_skb_is_last(sk, skb) ?
 						      nonagle : TCP_NAGLE_PUSH))))
+				{
+					increment_tcp_hiatus_count(k_tcp_defer_nagle) ;
 				break;
+				}
 		} else {
 			if (!push_one && tcp_tso_should_defer(sk, skb))
+				{
+					increment_tcp_hiatus_count(k_tcp_defer_should) ;
 				break;
+		}
 		}
 
 		limit = mss_now;
@@ -1570,13 +1604,20 @@ static int tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
 
 		if (skb->len > limit &&
 		    unlikely(tso_fragment(sk, skb, limit, mss_now)))
+			{
+				increment_tcp_hiatus_count(k_tcp_defer_fragment) ;
 			break;
+			}
 
 		TCP_SKB_CB(skb)->when = tcp_time_stamp;
 
 		if (unlikely(tcp_transmit_skb(sk, skb, 1, gfp)))
+			{
+				increment_tcp_hiatus_count(k_tcp_launch_failed) ;  /*  e.g. no memory when building TCP header */
 			break;
+			}
 
+		increment_tcp_hiatus_count(k_tcp_launched) ;  /*  Eventually, we didn't 'sleep' it. */
 		/* Advance the send_head.  This one is sent out.
 		 * This call will increment packets_out.
 		 */

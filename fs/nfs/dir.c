@@ -230,8 +230,11 @@ int dir_decode(nfs_readdir_descriptor_t *desc)
 	if (desc->timestamp_valid) {
 		desc->entry->fattr->time_start = desc->timestamp;
 		desc->entry->fattr->gencount = desc->gencount;
-	} else
+	}
+#if !defined(CONFIG_BGP_NFS_FIX)
+	else
 		desc->entry->fattr->valid &= ~NFS_ATTR_FATTR;
+#endif
 	return 0;
 }
 

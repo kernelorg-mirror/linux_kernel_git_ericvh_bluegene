@@ -1289,15 +1289,20 @@ static int iw_conn_req_handler(struct iw_cm_id *cm_id,
 	int ret;
 	struct ib_device_attr attr;
 
+//	printk(KERN_INFO "(>) iw_conn_req_handler cm_id=%p iw_event=%p\n",cm_id,iw_event) ;
 	listen_id = cm_id->context;
 	if (cma_disable_callback(listen_id, CMA_LISTEN))
+	  {
+	    printk(KERN_INFO "(<) iw_conn_req_handler ECONNABORTED\n") ;
 		return -ECONNABORTED;
+	  }
 
 	/* Create a new RDMA id for the new IW CM ID */
 	new_cm_id = rdma_create_id(listen_id->id.event_handler,
 				   listen_id->id.context,
 				   RDMA_PS_TCP);
 	if (IS_ERR(new_cm_id)) {
+      printk(KERN_INFO "(E) iw_conn_req_handler rdma_create_id returned %p, ENOMEM\n",new_cm_id) ;
 		ret = -ENOMEM;
 		goto out;
 	}
@@ -1307,6 +1312,7 @@ static int iw_conn_req_handler(struct iw_cm_id *cm_id,
 
 	dev = ip_dev_find(&init_net, iw_event->local_addr.sin_addr.s_addr);
 	if (!dev) {
+    printk(KERN_INFO "(E) iw_conn_req_handler !dev, EADDRNOTAVAIL\n") ;
 		ret = -EADDRNOTAVAIL;
 		mutex_unlock(&conn_id->handler_mutex);
 		rdma_destroy_id(new_cm_id);
@@ -1314,6 +1320,7 @@ static int iw_conn_req_handler(struct iw_cm_id *cm_id,
 	}
 	ret = rdma_copy_addr(&conn_id->id.route.addr.dev_addr, dev, NULL);
 	if (ret) {
+    printk(KERN_INFO "(E) iw_conn_req_handler rdma_copy_addr returned %d\n",ret) ;
 		mutex_unlock(&conn_id->handler_mutex);
 		rdma_destroy_id(new_cm_id);
 		goto out;
@@ -1323,6 +1330,7 @@ static int iw_conn_req_handler(struct iw_cm_id *cm_id,
 	ret = cma_acquire_dev(conn_id);
 	mutex_unlock(&lock);
 	if (ret) {
+	  printk(KERN_INFO "(E) iw_conn_req_handler cma_acquire_dev returned %d\n",ret) ;
 		mutex_unlock(&conn_id->handler_mutex);
 		rdma_destroy_id(new_cm_id);
 		goto out;
@@ -1339,6 +1347,7 @@ static int iw_conn_req_handler(struct iw_cm_id *cm_id,
 
 	ret = ib_query_device(conn_id->id.device, &attr);
 	if (ret) {
+	  printk(KERN_INFO "(E) iw_conn_req_handler ib_query_device returned %d\n",ret) ;
 		mutex_unlock(&conn_id->handler_mutex);
 		rdma_destroy_id(new_cm_id);
 		goto out;
@@ -1350,8 +1359,10 @@ static int iw_conn_req_handler(struct iw_cm_id *cm_id,
 	event.param.conn.private_data_len = iw_event->private_data_len;
 	event.param.conn.initiator_depth = attr.max_qp_init_rd_atom;
 	event.param.conn.responder_resources = attr.max_qp_rd_atom;
+//  printk(KERN_INFO "(I) iw_conn_req_handler event_handler=%p\n",conn_id->id.event_handler) ;
 	ret = conn_id->id.event_handler(&conn_id->id, &event);
 	if (ret) {
+	  printk(KERN_INFO "(E) iw_conn_req_handler event_handler (%p) returned %d\n",conn_id->id.event_handler,ret) ;
 		/* User wants to destroy the CM ID */
 		conn_id->cm_id.iw = NULL;
 		cma_exch(conn_id, CMA_DESTROYING);
@@ -1366,6 +1377,7 @@ out:
 	if (dev)
 		dev_put(dev);
 	mutex_unlock(&listen_id->handler_mutex);
+//  printk(KERN_INFO "(<) iw_conn_req_handler ret=%d\n",ret) ;
 	return ret;
 }
 
@@ -1429,6 +1441,7 @@ static int cma_listen_handler(struct rdma_cm_id *id,
 
 	id->context = id_priv->id.context;
 	id->event_handler = id_priv->id.event_handler;
+//	printk(KERN_INFO "(><) cma_listen_handler id_priv->id.event_handler=%p\n", id_priv->id.event_handler) ;
 	return id_priv->id.event_handler(id, event);
 }
 
@@ -1960,10 +1973,17 @@ err1:
 	return ret;
 }
 
+#if defined(CONFIG_BLUEGENE)
+static int siw_hack = 1 ;
+#endif
 static int cma_alloc_any_port(struct idr *ps, struct rdma_id_private *id_priv)
 {
 	struct rdma_bind_list *bind_list;
 	int port, ret, low, high;
+
+#if defined(CONFIG_BLUEGENE)
+	if( siw_hack ) return 0;
+#endif
 
 	bind_list = kzalloc(sizeof *bind_list, GFP_KERNEL);
 	if (!bind_list)
@@ -2942,6 +2962,31 @@ static void cma_remove_one(struct ib_device *device)
 	cma_process_remove(cma_dev);
 	kfree(cma_dev);
 }
+#if defined(CONFIG_BLUEGENE)
+static struct ctl_path bgp_cma_ctl_path[] = {
+  { .procname = "bgp", .ctl_name = 0, },
+  { .procname = "cma", .ctl_name = 0, },
+  { },
+};
+
+static struct ctl_table bgp_cma_ctl_table[] = {
+    {
+            .ctl_name       = CTL_UNNUMBERED,
+            .procname       = "siw_hack" ,
+            .data           = &siw_hack,
+            .maxlen         = sizeof(int),
+            .mode           = 0644,
+            .proc_handler   = &proc_dointvec
+    } ,
+
+    { 0 }
+};
+static void register_cma_sysctl(void)
+  {
+    struct ctl_table_header * sysctl_table_header = register_sysctl_paths(bgp_cma_ctl_path,bgp_cma_ctl_table) ;
+    printk(KERN_INFO "cma_init register_cma_sysctl: sysctl_table_header=%p\n",sysctl_table_header) ;
+  }
+#endif
 
 static int cma_init(void)
 {
@@ -2963,6 +3008,10 @@ static int cma_init(void)
 	ret = ib_register_client(&cma_client);
 	if (ret)
 		goto err;
+
+#if defined(CONFIG_BLUEGENE)
+	register_cma_sysctl() ;
+#endif
 	return 0;
 
 err:

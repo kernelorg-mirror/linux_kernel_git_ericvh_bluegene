@@ -9,7 +9,8 @@
 
 #define VM_DATA_DEFAULT_FLAGS	VM_DATA_DEFAULT_FLAGS32
 
-#ifdef CONFIG_NOT_COHERENT_CACHE
+/* For BGP, it is convenient for 'kmalloc' to come back with 32-byte aligned units for torus DMA */
+#if defined(CONFIG_NOT_COHERENT_CACHE) || defined(CONFIG_BGP)
 #define ARCH_KMALLOC_MINALIGN	L1_CACHE_BYTES
 #endif
 

@@ -124,8 +124,13 @@ struct sk_buff_head {
 
 struct sk_buff;
 
+#if defined(CONFIG_BGP)
+/* Set 'high' to give scope for ZRL 'soft Iwarp' over the BlueGene torus */
+#define MAX_SKB_FRAGS 18
+#else
 /* To allow 64K frame to be packed as single skb without frag_list */
 #define MAX_SKB_FRAGS (65536/PAGE_SIZE + 2)
+#endif
 
 typedef struct skb_frag_struct skb_frag_t;
 
@@ -1706,7 +1711,12 @@ static inline void skb_copy_from_linear_data_offset(const struct sk_buff *skb,
 						    const int offset, void *to,
 						    const unsigned int len)
 {
+#if defined(CONFIG_BGP_TORUS)
+    /* This version of 'copy' will use the BlueGene floating point unit when appropriate */
+    __copy_tofrom_user(to, skb->data + offset, len) ;
+#else
 	memcpy(to, skb->data + offset, len);
+#endif
 }
 
 static inline void skb_copy_to_linear_data(struct sk_buff *skb,

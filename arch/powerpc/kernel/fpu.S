@@ -12,6 +12,39 @@
  *  as published by the Free Software Foundation; either version
  *  2 of the License, or (at your option) any later version.
  *
+ *    Revised 2011 Chris Ward <tjcw@uk.ibm.com>
+ *  To improve the ability to use floating-point registers in the kernel,
+ *  I have added code to hold the interrupt mask around some instructions
+ *  in 'giveup_fpu()'. The specific case needing this is
+ *  'Zepto' linux for BlueGene/P, where floating-point registers are
+ *  needed in a 'tasklet' as part of the bgp_collective network driver,
+ *  and floating-point registers are wanted as part of an optimisation
+ *  to 'copy_tofrom_user'. The observed problem (without the interrupt mask)
+ *  seemed to be that the code could be interrupted after the "mffs fr0"
+ *  and before the ownership of the fp regs had been disclaimed; then
+ *  'giveup_fpu()' could be called again as a consequence of the interrupt.
+ *  When fr0 then got saved in the task struct, it would overwrite the
+ *  proper fr0 value; and when the task was subspequently dispatched it
+ *  would find an unexpected value in fr0.
+ *
+ *  There is some discussion (Benjamin Herrenschmidt <benh@kernel.crashing.org>)
+ *  as to whether the code here is sufficient to achieve the intent, and
+ *  as to how future-proof it is; current state of discussion is
+ *
+ * > > Reentering giveup_fpu() is only a problem if you can get a different
+ * > > answer the second time from the first time; and the only way you can
+ * > > get a different answer is if you reenter it while fr0 has the contents
+ * > > of fpscr in it, instead of the application's fr0.
+ * >
+ * > That's very fishy ... in any case, just don't do it. FPU in the kernel
+ * > is already close to the limit of what's acceptable, doing it in
+ * > interrupt context is way beyond that limit, at least if using the
+ * > standard FPU primitives.
+ * >
+ * > Do as I said earlier, that is save/restore what you use, if you really
+ * > want to use it there.
+ * >
+ *
  */
 
 #include <asm/reg.h>
@@ -24,12 +57,15 @@
 #include <asm/ppc_asm.h>
 #include <asm/asm-offsets.h>
 
+/* #define DISABLE_INTERRUPTS_DURING_LOAD_UP_FPU */
+#define DISABLE_INTERRUPTS_DURING_GIVEUP_FPU
+
 #ifdef CONFIG_VSX
 #define REST_32FPVSRS(n,c,base)						\
 BEGIN_FTR_SECTION							\
 	b	2f;							\
 END_FTR_SECTION_IFSET(CPU_FTR_VSX);					\
-	REST_32FPRS(n,base);						\
+	REST_32FPRS(n,c,base);						\
 	b	3f;							\
 2:	REST_32VSRS(n,c,base);						\
 3:
@@ -38,13 +74,13 @@ END_FTR_SECTION_IFSET(CPU_FTR_VSX);					\
 BEGIN_FTR_SECTION							\
 	b	2f;							\
 END_FTR_SECTION_IFSET(CPU_FTR_VSX);					\
-	SAVE_32FPRS(n,base);						\
+	SAVE_32FPRS(n,c,base);						\
 	b	3f;							\
 2:	SAVE_32VSRS(n,c,base);						\
 3:
 #else
-#define REST_32FPVSRS(n,b,base)	REST_32FPRS(n, base)
-#define SAVE_32FPVSRS(n,b,base)	SAVE_32FPRS(n, base)
+#define REST_32FPVSRS(n,b,base)	REST_32FPRS(n,b,base)
+#define SAVE_32FPVSRS(n,b,base)	SAVE_32FPRS(n,b,base)
 #endif
 
 /*
@@ -55,16 +91,19 @@ END_FTR_SECTION_IFSET(CPU_FTR_VSX);					\
  * enable the FPU for the current task and return to the task.
  */
 _GLOBAL(load_up_fpu)
-	mfmsr	r5
-	ori	r5,r5,MSR_FP
+	mfmsr	r6
+	ori	r6,r6,MSR_FP
 #ifdef CONFIG_VSX
 BEGIN_FTR_SECTION
-	oris	r5,r5,MSR_VSX@h
+	oris	r6,r6,MSR_VSX@h
 END_FTR_SECTION_IFSET(CPU_FTR_VSX)
 #endif
 	SYNC
-	MTMSRD(r5)			/* enable use of fpu now */
+	MTMSRD(r6)			/* enable use of fpu now */
 	isync
+#if defined(DISABLE_INTERRUPTS_DURING_LOAD_UP_FPU)
+	wrteei 0
+#endif
 /*
  * For SMP, we don't do lazy FPU switching because it just gets too
  * horrendously complex, especially when a task switches from one CPU
@@ -111,6 +150,9 @@ END_FTR_SECTION_IFSET(CPU_FTR_VSX)
 	fromreal(r4)
 	PPC_STL	r4,ADDROFF(last_task_used_math)(r3)
 #endif /* CONFIG_SMP */
+#if defined(DISABLE_INTERRUPTS_DURING_LOAD_UP_FPU)
+	wrtee r6			/* restore the interrupt mask */
+#endif
 	/* restore registers and return */
 	/* we haven't used ctr or xer or lr */
 	blr
@@ -122,16 +164,16 @@ END_FTR_SECTION_IFSET(CPU_FTR_VSX)
  * Enables the FPU for use in the kernel on return.
  */
 _GLOBAL(giveup_fpu)
-	mfmsr	r5
-	ori	r5,r5,MSR_FP
+	mfmsr	r6
+	ori	r6,r6,MSR_FP
 #ifdef CONFIG_VSX
 BEGIN_FTR_SECTION
-	oris	r5,r5,MSR_VSX@h
+	oris	r6,r6,MSR_VSX@h
 END_FTR_SECTION_IFSET(CPU_FTR_VSX)
 #endif
 	SYNC_601
 	ISYNC_601
-	MTMSRD(r5)			/* enable use of fpu now */
+	MTMSRD(r6)			/* enable use of fpu now */
 	SYNC_601
 	isync
 	PPC_LCMPI	0,r3,0
@@ -140,6 +182,9 @@ END_FTR_SECTION_IFSET(CPU_FTR_VSX)
 	PPC_LL	r5,PT_REGS(r3)
 	PPC_LCMPI	0,r5,0
 	SAVE_32FPVSRS(0, r4 ,r3)
+#if defined(DISABLE_INTERRUPTS_DURING_GIVEUP_FPU)
+	wrteei 0	/* Disable interupts while fr0 is inconsistent with what the application thinks should be there */
+#endif
 	mffs	fr0
 	stfd	fr0,THREAD_FPSCR(r3)
 	beq	1f
@@ -153,6 +198,9 @@ END_FTR_SECTION_IFSET(CPU_FTR_VSX)
 	LOAD_REG_ADDRBASE(r4,last_task_used_math)
 	PPC_STL	r5,ADDROFF(last_task_used_math)(r4)
 #endif /* CONFIG_SMP */
+#if defined(DISABLE_INTERRUPTS_DURING_GIVEUP_FPU)
+	wrtee r6	/* Restore the interrupt mask */
+#endif
 	blr
 
 /*

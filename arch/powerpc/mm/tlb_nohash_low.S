@@ -34,8 +34,13 @@
 #include <asm/asm-offsets.h>
 #include <asm/processor.h>
 
+#ifdef CONFIG_ZEPTO
+#include <asm/zepto_tlb.h>
+#endif
+
 #if defined(CONFIG_40x)
 
+	
 /*
  * 40x implementation needs only tlbil_va
  */
@@ -101,7 +106,15 @@ _GLOBAL(_tlbil_va)
 
 _GLOBAL(_tlbil_all)
 _GLOBAL(_tlbil_pid)
+#if defined(CONFIG_ZEPTO)
+	/*
+	 BigMem TLBs are flushed as well as regular page TLBs but
+         we have to keep TLBs for devices such UPC, torus, etc if there are
+	*/
+	li	r3, TLB_SLOT_AFTERDEV
+#else	
 	li	r3,0
+#endif
 	sync
 
 	/* Load high watermark */

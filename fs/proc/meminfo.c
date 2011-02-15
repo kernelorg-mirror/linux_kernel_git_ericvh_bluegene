@@ -15,6 +15,10 @@
 #include <asm/pgtable.h>
 #include "internal.h"
 
+#ifdef CONFIG_ZEPTO_MEMORY
+#include <linux/zepto_bigmem.h>
+#endif
+
 void __attribute__((weak)) arch_report_meminfo(struct seq_file *m)
 {
 }
@@ -53,6 +57,9 @@ static int meminfo_proc_show(struct seq_file *m, void *v)
 	 * Tagged format, for easy grepping and expansion.
 	 */
 	seq_printf(m,
+#ifdef CONFIG_ZEPTO_MEMORY
+                "BigMem:         %8lu kB\n"
+#endif
 		"MemTotal:       %8lu kB\n"
 		"MemFree:        %8lu kB\n"
 		"Buffers:        %8lu kB\n"
@@ -98,6 +105,9 @@ static int meminfo_proc_show(struct seq_file *m, void *v)
 		"VmallocTotal:   %8lu kB\n"
 		"VmallocUsed:    %8lu kB\n"
 		"VmallocChunk:   %8lu kB\n",
+#ifdef CONFIG_ZEPTO_MEMORY
+                (unsigned long)(get_bigmem_size())/1024,
+#endif
 		K(i.totalram),
 		K(i.freeram),
 		K(i.bufferram),

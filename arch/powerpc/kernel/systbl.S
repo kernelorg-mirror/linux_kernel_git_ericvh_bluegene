@@ -45,3 +45,30 @@
 
 _GLOBAL(sys_call_table)
 #include <asm/systbl.h>
+
+
+#ifdef CONFIG_BLUEGENE
+/* See also arch/powerpc/include/asm/unistd.h */
+		
+/* Generate ni_syscall until #1047.
+ * Each entry on ppc32 is 4 bytes so we do the math to pad the table.
+ */
+        .rept 1048 - (. - sys_call_table)/4
+SYSCALL(ni_syscall)
+        .endr
+/* Blue Gene hack syscalls start at 1048 */
+
+/* Define a zepto syscalls  */
+#ifdef CONFIG_ZEPTO
+
+SYSCALL(zepto_generic)  /* 1048 */
+SYSCALL(zepto_bigmem)   /* 1049 */
+SYSCALL(zepto_lockbox)  /* 1050 */
+#endif /* CONFIG_ZEPTO*/
+#ifdef CONFIG_ZEPTO_COMPUTENODE
+SYSCALL(zepto_dma)      /* 1051 */
+#endif
+
+#endif /* CONFIG_BLUEGENE */		
+
+

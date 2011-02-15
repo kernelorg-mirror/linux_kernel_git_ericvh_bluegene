@@ -38,6 +38,9 @@
 #include <asm/asm-offsets.h>
 #include "head_booke.h"
 
+#ifdef CONFIG_ZEPTO
+#include <asm/zepto_tlb.h>
+#endif
 
 /* As with the other PowerPC ports, it is expected that when code
  * execution begins here, the following registers contain valid, yet
@@ -143,7 +146,11 @@ skpinv:	addi	r4,r4,1				/* Increment */
 	sync
 
 	/* Initialize MMUCR */
+#ifdef CONFIG_L1_WRITETHROUGH
+        lis     r5,PPC44x_MMUCR_U2SWOAE@h
+#else
 	li	r5,0
+#endif
 	mtspr	SPRN_MMUCR,r5
 	sync
 
@@ -158,7 +165,12 @@ skpinv:	addi	r4,r4,1				/* Increment */
 	/* attrib fields */
 	/* Added guarded bit to protect against speculative loads/stores */
 	li	r5,0
+#ifdef CONFIG_L1_WRITETHROUGH
+	ori	r5,r5,(PPC44x_TLB_SW | PPC44x_TLB_SR | PPC44x_TLB_SX | PPC44x_TLB_M | PPC44x_TLB_U2)
+        oris    r5,r5,PPC44x_TLB_WL1@h
+#else
 	ori	r5,r5,(PPC44x_TLB_SW | PPC44x_TLB_SR | PPC44x_TLB_SX | PPC44x_TLB_G)
+#endif
 
         li      r0,63                    /* TLB slot 63 */
 
@@ -228,6 +240,14 @@ skpinv:	addi	r4,r4,1				/* Increment */
 	lis	r4,interrupt_base@h	/* IVPR only uses the high 16-bits */
 	mtspr	SPRN_IVPR,r4
 
+#ifdef CONFIG_SMP
+	/* are we an additional CPU? */
+	li	r0, 0
+	mfspr	r4, SPRN_PIR
+	cmpw	r4, r0
+	bgt	secondary_entry
+#endif
+
 	/*
 	 * This is where the main kernel code starts.
 	 */
@@ -278,6 +298,75 @@ skpinv:	addi	r4,r4,1				/* Increment */
 	mtspr	SPRN_SRR1,r3
 	rfi			/* change context and jump to start_kernel */
 
+
+#ifdef CONFIG_SMP
+/* Extra cpus will come here. */
+//#define _GLOBAL_DEVINIT(n)      \
+//	    .section	.text.devinit; \
+//	    .text;          \
+//       .stabs __stringify(n:F-1),N_FUN,0,0,n;\
+//        .globl n;       \
+//n:
+//
+//_GLOBAL_DEVINIT(secondary_entry)
+secondary_entry:
+        /* Enable U2SWOA.  U2 will be enabled in TLBs. */
+        lis     r7,PPC44x_MMUCR_U2SWOAE@h
+	mtspr	SPRN_MMUCR,r7
+	li	r7,0
+	mtspr	SPRN_PID,r7
+	sync
+	lis	r8,KERNELBASE@h
+
+        /* The tlb_44x_hwater global var (setup by cpu#0) reveals how many
+         * 256M TLBs we need to map.
+         */
+        lis     r9, tlb_44x_hwater@ha
+        lwz     r9, tlb_44x_hwater@l(r9)
+
+	li	r5,(PPC44x_TLB_SW | PPC44x_TLB_SR | PPC44x_TLB_SX | PPC44x_TLB_M|PPC44x_TLB_U2)
+        oris    r5, r5, PPC44x_TLB_WL1@h
+
+	/* tlb_44x_hwater is the biggest TLB slot number for regular TLBs.
+	   TLB 63 covers kernel base mapping(256MB) and TLB 62 covers CNS.
+	   With 768MB lowmem, it is set to 59. 
+	*/
+2:
+        addi    r9, r9, 1
+        cmpwi   r9,62                  /* Stop at entry 62 which is the firmware */
+        beq     3f
+        addis   r7,r7,0x1000           /* add 256M */
+        addis   r8,r8,0x1000
+	ori	r6,r8,PPC44x_TLB_VALID | PPC44x_TLB_256M
+
+	tlbwe	r6,r9,PPC44x_TLB_PAGEID	/* Load the pageid fields */
+	tlbwe	r7,r9,PPC44x_TLB_XLAT   /* Load the translation fields */
+	tlbwe	r5,r9,PPC44x_TLB_ATTRIB	/* Load the attrib/access fields */
+        b       2b
+
+3:      isync
+
+        /* Setup context from global var secondary_ti */
+        lis     r1, secondary_ti@ha
+        lwz     r1, secondary_ti@l(r1)
+        lwz     r2, TI_TASK(r1)         /*  r2 = task_info */
+
+	addi	r3,r2,THREAD	/* init task's THREAD */
+	mtspr	SPRN_SPRG3,r3
+
+	li	r0,0
+	stwu	r0,THREAD_SIZE-STACK_FRAME_OVERHEAD(r1)
+
+	/* Let's move on */
+	lis	r4,start_secondary@h
+	ori	r4,r4,start_secondary@l
+	lis	r3,MSR_KERNEL@h
+	ori	r3,r3,MSR_KERNEL@l
+	mtspr	SPRN_SRR0,r4
+	mtspr	SPRN_SRR1,r3
+	rfi			/* change context and jump to start_secondary */
+#endif
+
 /*
  * Interrupt vector entry code
  *
@@ -297,7 +386,11 @@ skpinv:	addi	r4,r4,1				/* Increment */
 
 interrupt_base:
 	/* Critical Input Interrupt */
+#ifdef CONFIG_BGP
+	CRITICAL_EXCEPTION(0x0100, CriticalInput, critical_exception)
+#else
 	CRITICAL_EXCEPTION(0x0100, CriticalInput, unknown_exception)
+#endif
 
 	/* Machine Check Interrupt */
 	CRITICAL_EXCEPTION(0x0200, MachineCheck, machine_check_exception)
@@ -430,7 +523,11 @@ interrupt_base:
 tlb_44x_patch_hwater_D:
 	cmpwi	0,r13,1			/* reserve entries */
 	ble	5f
+#ifdef CONFIG_ZEPTO
+	li      r13, REGULAR_TLB_START_SLOT  /* slot after device and bigmem */
+#else
 	li	r13,0
+#endif
 5:
 	/* Store the next available TLB index */
 	stw	r13,tlb_44x_index@l(r10)
@@ -526,7 +623,11 @@ tlb_44x_patch_hwater_D:
 tlb_44x_patch_hwater_I:
 	cmpwi	0,r13,1			/* reserve entries */
 	ble	5f
+#ifdef CONFIG_ZEPTO
+	li      r13, REGULAR_TLB_START_SLOT   /* slot after device and bigmme */
+#else
 	li	r13,0
+#endif
 5:
 	/* Store the next available TLB index */
 	stw	r13,tlb_44x_index@l(r10)
@@ -588,7 +689,15 @@ finish_tlb_load:
 	andi.	r10,r12,_PAGE_USER		/* User page ? */
 	beq	1f				/* nope, leave U bits empty */
 	rlwimi	r11,r11,3,26,28			/* yes, copy S bits to U */
-1:	tlbwe	r11,r13,PPC44x_TLB_ATTRIB	/* Write ATTRIB */
+1:
+#ifdef CONFIG_L1_WRITETHROUGH
+        andi.   r10, r11, PPC44x_TLB_I
+        bne     2f
+        oris    r11,r11,PPC44x_TLB_WL1@h        /* Add coherency for non-inhibited */
+        ori     r11,r11,PPC44x_TLB_SWOA|PPC44x_TLB_M
+2:
+#endif
+	tlbwe	r11,r13,PPC44x_TLB_ATTRIB	/* Write ATTRIB */
 
 	/* Done...restore registers and get out of here.
 	*/
@@ -670,3 +779,5 @@ swapper_pg_dir:
  */
 abatron_pteptrs:
 	.space	8
+
+

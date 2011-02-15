@@ -33,6 +33,10 @@
 #include <asm/tlb.h>
 #include <asm/mmu_context.h>
 
+#ifdef CONFIG_ZEPTO_MEMORY
+#include <linux/zepto_task.h>
+#endif
+
 #include "internal.h"
 
 #ifndef arch_mmap_check
@@ -252,6 +256,26 @@ SYSCALL_DEFINE1(brk, unsigned long, brk)
 	struct mm_struct *mm = current->mm;
 	unsigned long min_brk;
 
+#ifdef CONFIG_ZEPTO_MEMORY
+	/* NOTE: running_pid is 0 for bigmem explicit mmap */
+	if (enable_bigmem && IS_ZEPTO_TASK(current) && bigmem_process_active_count() > 0) {
+
+		zepto_debug(3, "brk=%08lx\n", brk);
+
+		down_write(&mm->mmap_sem);
+#ifdef CONFIG_COMPAT_BRK
+		if (brk < mm->end_code) 
+			retval = mm->brk;
+#else
+		if (brk < mm->start_brk)
+			retval = mm->brk;
+#endif
+		else 
+			retval = mm->brk = brk;
+		up_write(&mm->mmap_sem);
+		return retval;
+	}
+#endif
 	down_write(&mm->mmap_sem);
 
 #ifdef CONFIG_COMPAT_BRK
@@ -919,6 +943,35 @@ unsigned long do_mmap_pgoff(struct file *file, unsigned long addr,
 	unsigned int vm_flags;
 	int error;
 	unsigned long reqprot = prot;
+
+#ifdef CONFIG_ZEPTO_MEMORY
+	/* NOTE: running_pid is 0 for bigmem explicit mmap */
+	if (IS_ZEPTO_TASK(current) && bigmem_process_active_count() > 0) {
+
+		zepto_debug(3, "do_mmap_pgoff addr=%08lx len=%08lx pgoff=%08lx %s %s %s %s%s%s\n",
+			    addr, len, pgoff, 
+			    (flags&MAP_SHARED)?"Shared":"Private",
+			    (flags&MAP_FIXED)?"Fixed":"",
+		            (flags&MAP_ANONYMOUS)?"Anon":"",
+			    (prot&PROT_READ)?"R":"-",
+			    (prot&PROT_WRITE)?"W":"-",
+			    (prot&PROT_EXEC)?"X":"-");
+		
+		if (enable_bigmem) {
+			if (flags & MAP_ANONYMOUS) {
+				unsigned ret;
+				ret = allocate_bigmem_mmap_section(len);
+				if (addr == BIGMEM_MMAP_ALLOCATION_FAILURE) {
+					printk(KERN_ERR "[Z] allocate_bigmem_mmap_section() failed\n");
+					return 0;
+				}
+				zepto_debug(3, "do_mmap_pgoff()=>%08x\n", ret);
+				return ret;
+			}
+		}
+	}
+#endif
+
 
 	/*
 	 * Does the application expect PROT_READ to imply PROT_EXEC?
@@ -1877,6 +1930,18 @@ int do_munmap(struct mm_struct *mm, unsigned long start, size_t len)
 	unsigned long end;
 	struct vm_area_struct *vma, *prev, *last;
 
+#ifdef CONFIG_ZEPTO_MEMORY
+	if (enable_bigmem && IS_ZEPTO_TASK(current)) {
+		if (get_bigmem_region_start() <= start && 
+		    start+len < get_bigmem_region_end()) {
+			if(remove_bigmem_mmap_section(start) != BIGMEM_MMAP_SUCCESS) {
+				printk(KERN_ERR "[Z] remove_bigmem_mmap_section(0x%08lx) failed\n", start);
+				return -EINVAL;
+			}
+			zepto_debug(3, "A bigmem_mmap region %08lx+%08x was removed.\n", start, len);
+		}
+	}
+#endif
 	if ((start & ~PAGE_MASK) || start > TASK_SIZE || len > TASK_SIZE-start)
 		return -EINVAL;
 
@@ -1981,6 +2046,14 @@ unsigned long do_brk(unsigned long addr, unsigned long len)
 	struct rb_node ** rb_link, * rb_parent;
 	pgoff_t pgoff = addr >> PAGE_SHIFT;
 	int error;
+
+#ifdef CONFIG_ZEPTO_MEMORY
+	/* NOTE: running_pid is 0 for bigmem explicit mmap */
+	if (enable_bigmem && IS_ZEPTO_TASK(current) && bigmem_process_active_count() > 0) {
+		printk(KERN_WARNING "[Z] bigmem vma was already created");
+		return addr;
+	}	    
+#endif
 
 	len = PAGE_ALIGN(len);
 	if (!len)

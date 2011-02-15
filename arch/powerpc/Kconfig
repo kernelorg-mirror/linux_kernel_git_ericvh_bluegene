@@ -510,6 +510,13 @@ config CMDLINE
 	  some command-line options at build time by entering them here.  In
 	  most cases you will need to specify the root device here.
 
+config  WRAP_COPY_TOFROM_USER
+    bool "C-language wrapper for copy to/from user"
+    default n
+    help
+      Set this if you want to instrument the low-level function which block-copies data 
+      between user-space and kernel-space
+
 config EXTRA_TARGETS
 	string "Additional default image types"
 	help

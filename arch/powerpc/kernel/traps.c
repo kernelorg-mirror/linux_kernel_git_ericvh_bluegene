@@ -71,6 +71,11 @@ EXPORT_SYMBOL(__debugger_dabr_match);
 EXPORT_SYMBOL(__debugger_fault_handler);
 #endif
 
+#ifdef CONFIG_BGP
+#include <asm/bgcns.h>
+extern BGCNS_Descriptor bgcnsd;
+#endif
+
 /*
  * Trap & Exception support
  */
@@ -545,6 +550,28 @@ void unknown_exception(struct pt_regs *regs)
 
 	_exception(SIGTRAP, regs, 0, 0);
 }
+
+#ifdef CONFIG_BGP
+void critical_exception(struct pt_regs *regs)
+{
+	/* On Blue Gene we do not use criticals, but firmware does.
+	 * So call firmware to see what happened.  If firmware doesn't
+	 * handle it, then we panic.
+	 */
+	unsigned group, irq;
+	int ret;
+
+	/* Note: CNS by design stomps on a TLB.  We really can't do that here
+	 * because we might be in the middle of a TLB miss.
+	 * In the future change bgcns() to a bgcns_map()/bgcns_unmap() combination
+	 * and fully restore the TLB (even if it is invalid). is this still true?
+	 */
+	ret = bgcnsd.services->getInterrupt(BGCNS_Critical, &group, &irq);
+	if (ret != -1) {
+		panic("Unhandled critical exception, rc=%d group=0x%x irq=0x%x", ret, group, irq);
+	}
+}
+#endif
 
 void instruction_breakpoint_exception(struct pt_regs *regs)
 {

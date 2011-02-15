@@ -48,11 +48,13 @@ static inline unsigned long mmap_base(void)
 
 static inline int mmap_is_legacy(void)
 {
+#if defined(CONFIG_64BIT)
 	/*
 	 * Force standard allocation for 64 bit programs.
 	 */
 	if (!test_thread_flag(TIF_32BIT))
 		return 1;
+#endif
 
 	if (current->personality & ADDR_COMPAT_LAYOUT)
 		return 1;

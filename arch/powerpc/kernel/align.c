@@ -230,6 +230,7 @@ static inline unsigned make_dsisr(unsigned instr)
  * case when we are running with the cache disabled
  * for debugging.
  */
+static int align_dcbz_count ;
 static int emulate_dcbz(struct pt_regs *regs, unsigned char __user *addr)
 {
 	long __user *p;
@@ -246,6 +247,7 @@ static int emulate_dcbz(struct pt_regs *regs, unsigned char __user *addr)
 	for (i = 0; i < size / sizeof(long); ++i)
 		if (__put_user_inatomic(0, p+i))
 			return -EFAULT;
+	align_dcbz_count += 1 ;
 	return 1;
 }
 
@@ -930,3 +932,32 @@ int fix_alignment(struct pt_regs *regs)
 
 	return 1;
 }
+
+static struct ctl_table align_table[] = {
+    {
+            .ctl_name       = CTL_UNNUMBERED,
+            .procname       = "align_dcbz_count" ,
+            .data           = &align_dcbz_count,
+            .maxlen         = sizeof(int),
+            .mode           = 0644,
+            .proc_handler   = &proc_dointvec
+    } ,
+        {}
+};
+
+static struct ctl_path align_path[] = {
+
+            { .procname = "bgp", .ctl_name = 0, },
+            { .procname = "kernel", .ctl_name = 0, },
+            { },
+};
+
+static int __init
+align_sysctl_init(void)
+{
+    struct ctl_table_header * sysctl_table_header = register_sysctl_paths(align_path,align_table);
+    printk(KERN_INFO "align_sysctl_init sysctl_table_header=%p\n",sysctl_table_header) ;
+    return 0;
+}
+
+__initcall(align_sysctl_init);

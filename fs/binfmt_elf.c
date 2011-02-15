@@ -42,6 +42,39 @@
 #include <asm/param.h>
 #include <asm/page.h>
 
+#ifdef CONFIG_ZEPTO_MEMORY
+#include <linux/zepto_task.h>
+
+static DEFINE_MUTEX(zepto_task_mutex);
+
+int bgWriteConsoleBlockDirect(const char* fmt,...);
+#define  BIGMEM_FAIL_MSG(msg)     bgWriteConsoleBlockDirect("bigmem process failed to exec: %s binfmt_elf.c(%d)\n",(msg),__LINE__)
+
+void print_mmaps(const char* label, int lineno)
+{
+    if(zepto_debug_level>1 ) { 
+	if( IS_ZEPTO_TASK(current) ) {
+	    struct mm_struct *mm = current->mm;
+	    struct vm_area_struct *vma;
+	    int cnt=0;
+
+	    down_read(&mm->mmap_sem);
+	    vma = mm->mmap;
+	    while(vma) {
+		zepto_debug(2,"%d.%08lx:%08lx  ",
+		       cnt++,vma->vm_start, vma->vm_end );
+		vma = vma->vm_next;
+	    }
+	    zepto_debug(2,"print_mmaps %s(%d)\n",label, lineno);
+	    up_read(&mm->mmap_sem);
+	}
+    }
+}
+
+#define  Z  if(IS_ZEPTO_TASK(current)) {zepto_debug(2,"%s(%d)\n",__FILE__,__LINE__)}
+#endif
+
+
 static int load_elf_binary(struct linux_binprm *bprm, struct pt_regs *regs);
 static int load_elf_library(struct file *);
 static unsigned long elf_map(struct file *, unsigned long, struct elf_phdr *,
@@ -86,14 +119,23 @@ static int set_brk(unsigned long start, unsigned long end)
 {
 	start = ELF_PAGEALIGN(start);
 	end = ELF_PAGEALIGN(end);
-	if (end > start) {
+#ifdef CONFIG_ZEPTO_MEMORY
+	if( enable_bigmem&&IS_ZEPTO_TASK(current) ) {
+	    zepto_debug(2,"skip do_brk(%08lx,%08lx)  binfmt_elf.c(%d)\n",
+		   start, end - start, __LINE__);
+	} else {
+#endif
+	   if (end > start) {
 		unsigned long addr;
 		down_write(&current->mm->mmap_sem);
 		addr = do_brk(start, end - start);
 		up_write(&current->mm->mmap_sem);
 		if (BAD_ADDR(addr))
 			return addr;
+	   }
+#ifdef CONFIG_ZEPTO_MEMORY
 	}
+#endif
 	current->mm->start_brk = current->mm->brk = end;
 	return 0;
 }
@@ -161,7 +203,42 @@ create_elf_tables(struct linux_binprm *bprm, struct elfhdr *exec,
 	int ei_index = 0;
 	const struct cred *cred = current_cred();
 	struct vm_area_struct *vma;
+#ifdef CONFIG_ZEPTO_MEMORY
+	unsigned long orig_p = p;
+	unsigned long stack_vma_end = 0;
+	unsigned long bigmem_stack_adj = 0;
 
+	/* find stack vma and re-calculate sp for bigmem */
+	if( IS_ZEPTO_TASK(current) ) {
+	    struct mm_struct *mm = current->mm;
+	    struct vm_area_struct *vma;
+	    unsigned stackused;
+
+	    down_read(&mm->mmap_sem);
+	    vma = mm->mmap;
+	    while(vma) {
+		if( vma->vm_end >  stack_vma_end ) 
+		    stack_vma_end = vma->vm_end;
+		vma = vma->vm_next;
+	    }
+	    up_read(&mm->mmap_sem);
+
+
+	    stackused = stack_vma_end - p;
+	    p = get_bigmem_region_end() - stackused;
+
+	    /* copy argv, envp str content from stack vma to bigmem */
+	    if( copy_from_user((void*)p, (void*)orig_p, stackused ) ) {
+		BIGMEM_FAIL_MSG("copy_from_user");
+		return -EFAULT;
+	    }
+
+	    bigmem_stack_adj = stack_vma_end - get_bigmem_region_end();
+
+	    zepto_debug(2,"stack_vma_end=%08lx  bigmem_end=%08x\n", 
+			stack_vma_end,  get_bigmem_region_end() );
+	}
+#endif
 	/*
 	 * In some cases (e.g. Hyper-Threading), we want to avoid L1
 	 * evictions by the processes running on the same package. One
@@ -273,14 +350,22 @@ create_elf_tables(struct linux_binprm *bprm, struct elfhdr *exec,
 	sp = (elf_addr_t __user *)bprm->p;
 #endif
 
+#ifdef CONFIG_ZEPTO_MEMORY
+	if( IS_ZEPTO_TASK(current) ) {
+	    zepto_debug(2,"sp=%p bprm->p=%p  %s@binfmt_elf.c(%d)\n",
+			(void*)sp, (void*)bprm->p, __func__,__LINE__);
+	    print_mmaps("stack vma", __LINE__);
+	}
+#endif
 
 	/*
 	 * Grow the stack manually; some architectures have a limit on how
 	 * far ahead a user-space access may be in order to grow the stack.
 	 */
-	vma = find_extend_vma(current->mm, bprm->p);
+  	vma = find_extend_vma(current->mm, bprm->p);
 	if (!vma)
 		return -EFAULT;
+
 
 	/* Now, let's put argc (and argv, envp if appropriate) on the stack */
 	if (__put_user(argc, sp++))
@@ -290,8 +375,19 @@ create_elf_tables(struct linux_binprm *bprm, struct elfhdr *exec,
 
 	/* Populate argv and envp */
 	p = current->mm->arg_end = current->mm->arg_start;
+#ifdef CONFIG_ZEPTO_MEMORY
+	if( IS_ZEPTO_TASK(current) ) {
+	    /* arg and env strings already copied into bigmem region */
+	    p -= bigmem_stack_adj;
+	}
+#endif
 	while (argc-- > 0) {
 		size_t len;
+#ifdef CONFIG_ZEPTO_MEMORY
+	if( IS_ZEPTO_TASK(current) ) {
+	    zepto_debug(2,"argc=%d p=%08lx *p=%02x\n", argc, p, *((char*)p) );
+	}
+#endif
 		if (__put_user((elf_addr_t)p, argv++))
 			return -EFAULT;
 		len = strnlen_user((void __user *)p, MAX_ARG_STRLEN);
@@ -302,6 +398,12 @@ create_elf_tables(struct linux_binprm *bprm, struct elfhdr *exec,
 	if (__put_user(0, argv))
 		return -EFAULT;
 	current->mm->arg_end = current->mm->env_start = p;
+#ifdef CONFIG_ZEPTO_MEMORY
+	if( IS_ZEPTO_TASK(current) ) {
+	    zepto_debug(2,"envp p=%p  %s@binfmt_elf.c(%d)\n",
+			(void*)p, __func__,__LINE__);
+	}
+#endif
 	while (envc-- > 0) {
 		size_t len;
 		if (__put_user((elf_addr_t)p, envp++))
@@ -317,8 +419,14 @@ create_elf_tables(struct linux_binprm *bprm, struct elfhdr *exec,
 
 	/* Put the elf_info on the stack in the right place.  */
 	sp = (elf_addr_t __user *)envp + 1;
+#ifdef CONFIG_ZEPTO_MEMORY
+	if( IS_ZEPTO_TASK(current) ) {
+	    zepto_debug(2,"auxv sp=%p  %s@binfmt_elf.c(%d)\n",
+			sp, __func__,__LINE__);
+	}
+#endif
 	if (copy_to_user(sp, elf_info, ei_index * sizeof(elf_addr_t)))
-		return -EFAULT;
+	    return -EFAULT;
 	return 0;
 }
 
@@ -338,6 +446,20 @@ static unsigned long elf_map(struct file *filep, unsigned long addr,
 	 * segment with zero filesize is perfectly valid */
 	if (!size)
 		return addr;
+
+
+#ifdef CONFIG_ZEPTO_MEMORY
+	if( IS_ZEPTO_TASK(current) ) {
+	    if ( off ) {
+		zepto_debug(2,"elf_map()  calls do_mmap() addr=%08lx  len=%08lx off=%08lx  fs/binfmt_elf.c(%d)\n",
+		       ELF_PAGESTART(addr),
+			    size, off,__LINE__ );
+	    } else {
+		zepto_debug(2,"map_addr=%08lx  fs/binfmt_elf.c(%d)\n",
+		       ELF_PAGESTART(addr), __LINE__ );
+	    }
+	}
+#endif
 
 	down_write(&current->mm->mmap_sem);
 	/*
@@ -524,6 +646,12 @@ static unsigned long load_elf_interp(struct elfhdr *interp_elf_ex,
 
 	/* Map the last of the bss segment */
 	if (last_bss > elf_bss) {
+#ifdef CONFIG_ZEPTO_MEMORY
+	if( IS_ZEPTO_TASK(current) ) {
+	    zepto_debug(2,"do_brk()  start=%08lx len=%08lx  fs/binfmt_elf.c(%d)\n",
+		   elf_bss, last_bss - elf_bss, __LINE__);
+	}
+#endif
 		down_write(&current->mm->mmap_sem);
 		error = do_brk(elf_bss, last_bss - elf_bss);
 		up_write(&current->mm->mmap_sem);
@@ -566,6 +694,79 @@ static unsigned long randomize_stack_top(unsigned long stack_top)
 	return PAGE_ALIGN(stack_top) - random_variable;
 #endif
 }
+
+
+#ifdef CONFIG_ZEPTO_MEMORY
+static int zepto_task_init_bigmem(unsigned bigmem_start)
+{
+	struct vm_area_struct *mpnt;
+	struct mm_struct *mm = current->mm;
+
+	init_bigmem_tlb( bigmem_start );
+	install_bigmem_tlb(); 
+	fill_zero_bigmem();
+
+	/*
+	   Create a vma to cover a bigmem region.  bigmem region is covered
+	   by semi-statically installed TLBs
+	   */
+	mpnt = kmem_cache_alloc(vm_area_cachep, GFP_KERNEL);
+	if (!mpnt) {
+	    BIGMEM_FAIL_MSG("kmem_cache_alloc");
+		return -EFAULT;
+	}
+	memset(mpnt, 0, sizeof(*mpnt));
+
+	down_write(&mm->mmap_sem);
+
+	mpnt->vm_mm = mm;
+	mpnt->vm_start = get_bigmem_region_start() ;
+	mpnt->vm_end   = get_bigmem_region_end() ;
+
+	mpnt->vm_flags = MAP_FIXED|MAP_PRIVATE|VM_IO|VM_DONTEXPAND|VM_RESERVED|VM_PFNMAP;
+	mpnt->vm_page_prot = PROT_WRITE|PROT_READ|PROT_EXEC;
+
+	if(insert_vm_struct(mm, mpnt)) {
+	    BIGMEM_FAIL_MSG("insert_vm_struct");
+		up_write(&mm->mmap_sem);
+		kmem_cache_free(vm_area_cachep, mpnt);
+		return -EFAULT;
+	}
+
+	mm->stack_vm = mm->total_vm = vma_pages(mpnt);  /* NOTE: stack_vm is used basically for accounting */
+
+	up_write(&current->mm->mmap_sem);
+
+	zepto_debug(2,"vma[0x%08x,0x%08x) is inserted  binfmt_elf.c(%d)\n",
+			get_bigmem_region_start(), get_bigmem_region_end(),__LINE__);
+
+	return 0;
+}
+
+
+
+static void zepto_task_init_sched_affinity(int coreid) 
+{
+	cpumask_t mask;
+	int prev_cid = smp_processor_id();
+	zepto_debug(1,"bigmem_process_new() => %d\n", coreid);
+	
+	SET_ZEPTO_TASK(current, 1);
+	//set_tsk_thread_flag(current, TIF_USER_NOINT);
+
+	cpus_clear(mask);
+	cpu_set(coreid, mask);
+	sched_setaffinity(current->pid, &mask);  
+	yield();
+
+	zepto_debug(1,"A zepto task(pid=%d) is created cid=%d prev_cid=%d\n", current->pid, 
+		    smp_processor_id(), prev_cid);
+}
+
+
+
+#endif /* CONFIG_ZEPTO_MEMORY */
+
 
 static int load_elf_binary(struct linux_binprm *bprm, struct pt_regs *regs)
 {
@@ -764,6 +965,20 @@ static int load_elf_binary(struct linux_binprm *bprm, struct pt_regs *regs)
 	if (elf_read_implies_exec(loc->elf_ex, executable_stack))
 		current->personality |= READ_IMPLIES_EXEC;
 
+#ifdef CONFIG_ZEPTO_MEMORY
+	/* Check see if this is Zepto task or not. */
+	if(loc->elf_ex.e_flags & ZEPTO_ELF_HDR_FLAG ) {
+	    if( bigmem_process_all_active() ) {
+		BIGMEM_FAIL_MSG("bigmem_process_all_active");
+		goto out_free_dentry;
+	    } else {
+			int coreid = bigmem_process_new();
+			zepto_debug(2, "bigmem cid=%d\n",coreid);
+			zepto_task_init_sched_affinity(coreid);
+	    }
+	}
+#endif
+
 	if (!(current->personality & ADDR_NO_RANDOMIZE) && randomize_va_space)
 		current->flags |= PF_RANDOMIZE;
 	arch_pick_mmap_layout(current->mm);
@@ -772,14 +987,39 @@ static int load_elf_binary(struct linux_binprm *bprm, struct pt_regs *regs)
 	   change some of these later */
 	current->mm->free_area_cache = current->mm->mmap_base;
 	current->mm->cached_hole_size = 0;
+
+#ifdef CONFIG_ZEPTO_MEMORY
+	print_mmaps("Prepare stack   binfmt_elf.c",__LINE__);
+
+	if(enable_bigmem && IS_ZEPTO_TASK(current) ) {
+
+		if (zepto_task_init_bigmem(loc->elf_ex.e_entry)) {
+		    BIGMEM_FAIL_MSG("zepto_task_init_bigmem");
+
+			send_sig(SIGKILL, current, 0);
+			goto out_free_dentry;
+		}
+	} 
+#endif /* CONFIG_ZEPTO_MEMORY */
+
+	/* NOTE: On bigmem, the contents of the arg pages is copied to the
+	 * bigmem region in create_elf_tables() */
+
 	retval = setup_arg_pages(bprm, randomize_stack_top(STACK_TOP),
 				 executable_stack);
 	if (retval < 0) {
-		send_sig(SIGKILL, current, 0);
-		goto out_free_dentry;
+	    send_sig(SIGKILL, current, 0);
+	    goto out_free_dentry;
 	}
-	
+
 	current->mm->start_stack = bprm->p;
+
+#ifdef CONFIG_ZEPTO_MEMORY
+	if( IS_ZEPTO_TASK(current) ) {
+	    zepto_debug(2,"current->mm start_stack=0x%08lx  fs/binfmt_elf.c(%d)\n",
+		   current->mm->start_stack, __LINE__ );
+	}
+#endif
 
 	/* Now we do a little grungy work by mmaping the ELF image into
 	   the correct location in memory. */
@@ -797,6 +1037,16 @@ static int load_elf_binary(struct linux_binprm *bprm, struct pt_regs *regs)
 			/* There was a PT_LOAD segment with p_memsz > p_filesz
 			   before this one. Map anonymous pages, if needed,
 			   and clear the area.  */
+#ifdef CONFIG_ZEPTO_MEMORY
+			if( IS_ZEPTO_TASK(current) ) {
+			    BIGMEM_FAIL_MSG("unlikely_brk");
+			    //printk(KERN_ERR "[Z] unlikely_brk()  start=%08lx end=%08lx  fs/binfmt_elf.c(%d)\n",
+				   // elf_bss + load_bias, elf_brk + load_bias, __LINE__);
+			    retval = -ENOEXEC;
+			    send_sig(SIGKILL, current, 0);
+			    goto  out_free_dentry;
+			}
+#endif
 			retval = set_brk (elf_bss + load_bias,
 					  elf_brk + load_bias);
 			if (retval) {
@@ -843,14 +1093,79 @@ static int load_elf_binary(struct linux_binprm *bprm, struct pt_regs *regs)
 #endif
 		}
 
-		error = elf_map(bprm->file, load_bias + vaddr, elf_ppnt,
+#ifdef CONFIG_ZEPTO_MEMORY
+		if( enable_bigmem && IS_ZEPTO_TASK(current) ) {
+		    unsigned pageoffset = ELF_PAGEOFFSET(elf_ppnt->p_vaddr);
+		    unsigned s_off_file = elf_ppnt->p_offset - pageoffset;
+		    unsigned vaddr = elf_ppnt->p_vaddr;
+		    int i;
+		    int retry;
+		    /*
+		      load text and data section into bigmem
+		    */
+		    
+		    zepto_debug(2,"Elf section copying: pageoffset=%08x s_off_file=%08x  va=%08x size=%08x fs/binfmt_elf.c(%d)\n",
+			   pageoffset, s_off_file,  elf_ppnt->p_vaddr,  elf_ppnt->p_filesz, __LINE__ );
+
+		    print_mmaps("Reading bigmem text",__LINE__);
+
+		    mutex_lock(&zepto_task_mutex);
+		    for(i=0; i<elf_ppnt->p_filesz/PAGE_SIZE; i++ ) {
+			// zepto_debug(2,"kernel_read() off=%08x vadd=%08x size=%08lx\n", s_off_file, vaddr, PAGE_SIZE );
+			for(retry=0;retry<10;retry++) {
+			    retval = kernel_read(bprm->file, s_off_file, (void*)vaddr, PAGE_SIZE );
+			    if(retval ==  PAGE_SIZE ) break;
+			    schedule();
+			}
+
+			if(retval !=  PAGE_SIZE ) {
+			    mutex_unlock(&zepto_task_mutex);
+			    BIGMEM_FAIL_MSG("kernel_read");
+			    //printk(KERN_ERR "[Z] kernel_read() failed. retval=%d %s\n", retval,
+			    //(retval==-EBADF)?"BADF":(retval==-EINVAL)?"INVAL":(retval==-EFAULT)?"FAULT":"unknown");
+
+			    if (retval >= 0)
+				retval = -EIO;
+			    goto out_free_ph;
+			}
+			s_off_file += PAGE_SIZE;
+			vaddr += PAGE_SIZE;
+		    }
+
+		    //  zepto_debug(2,"kernel_read() off=%08x vadd=%08x size=%08lx\n", s_off_file, vaddr, (elf_ppnt->p_filesz % PAGE_SIZE) );
+		    for(retry=0;retry<10;retry++) {
+			retval = kernel_read(bprm->file, s_off_file, (void*)vaddr, (elf_ppnt->p_filesz % PAGE_SIZE) );
+			if( retval == (elf_ppnt->p_filesz % PAGE_SIZE) ) break;
+			schedule();
+		    }
+
+		    if(retval !=  (elf_ppnt->p_filesz % PAGE_SIZE) ) {
+			mutex_unlock(&zepto_task_mutex);
+			BIGMEM_FAIL_MSG("kernel_read");
+			//printk(KERN_ERR "[Z] kernel_read() failed. retval=%d size=%lu %s\n", retval,
+			//(elf_ppnt->p_filesz % PAGE_SIZE) ,
+			//(retval==-EBADF)?"BADF":(retval==-EINVAL)?"INVAL":(retval==-EFAULT)?"FAULT":"unknown");
+
+			if (retval >= 0)
+			    retval = -EIO;
+			goto out_free_ph;
+		    }
+		    mutex_unlock(&zepto_task_mutex);
+
+		    error = 0;
+		} else {
+#endif
+		   error = elf_map(bprm->file, load_bias + vaddr, elf_ppnt,
 				elf_prot, elf_flags, 0);
-		if (BAD_ADDR(error)) {
+		   if (BAD_ADDR(error)) {
 			send_sig(SIGKILL, current, 0);
 			retval = IS_ERR((void *)error) ?
 				PTR_ERR((void*)error) : -EINVAL;
 			goto out_free_dentry;
-		}
+		   }
+#ifdef CONFIG_ZEPTO_MEMORY
+		} /* IS_ZEPTO_TASK(current)  */
+#endif
 
 		if (!load_addr_set) {
 			load_addr_set = 1;
@@ -908,6 +1223,24 @@ static int load_elf_binary(struct linux_binprm *bprm, struct pt_regs *regs)
 	 * mapping in the interpreter, to make sure it doesn't wind
 	 * up getting placed where the bss needs to go.
 	 */
+#ifdef CONFIG_ZEPTO_MEMORY
+	/* XXX: fix the hard coded number and the bigmem layout!!! */
+	if(enable_bigmem && IS_ZEPTO_TASK(current) ) {
+	    zepto_debug(2, "set_brk() elf_bss=0x%08lx  elf_brk=0x%08lx load_bias=%08lx fs/binfmt_elf.c(%d)\n",
+		   elf_bss, elf_brk, load_bias, __LINE__);
+
+	    if( bigmem_mmap_init((elf_brk+0x04000000)&0xffff0000,
+			   (get_bigmem_region_end()-0x01000000)  )!=BIGMEM_MMAP_SUCCESS ) {
+		BIGMEM_FAIL_MSG("bigmem_mmap_init");
+		send_sig(SIGKILL, current, 0);
+		goto out_free_dentry;
+	    }
+	    zepto_debug(2, "bigmem_mmap_start=0x%08x bigmem_mmap_end=0x%08x\n",
+			get_bigmem_mmap_start() , get_bigmem_mmap_end()
+		);
+	}
+#endif
+
 	retval = set_brk(elf_bss, elf_brk);
 	if (retval) {
 		send_sig(SIGKILL, current, 0);
@@ -953,6 +1286,9 @@ static int load_elf_binary(struct linux_binprm *bprm, struct pt_regs *regs)
 			goto out_free_dentry;
 		}
 	}
+#ifdef CONFIG_ZEPTO_MEMORY
+	print_mmaps("binfmt_elf.c",__LINE__);
+#endif
 
 	kfree(elf_phdata);
 
@@ -976,6 +1312,14 @@ static int load_elf_binary(struct linux_binprm *bprm, struct pt_regs *regs)
 		send_sig(SIGKILL, current, 0);
 		goto out;
 	}
+
+#ifdef CONFIG_ZEPTO_MEMORY
+	if( IS_ZEPTO_TASK(current) ) {
+	    zepto_debug(2,"start_stack=%p after create_elf_tables()\n", (void*)bprm->p);
+	}
+#endif
+
+
 	/* N.B. passed_fileno might not be initialized? */
 	current->mm->end_code = end_code;
 	current->mm->start_code = start_code;
@@ -994,6 +1338,14 @@ static int load_elf_binary(struct linux_binprm *bprm, struct pt_regs *regs)
 		   and some applications "depend" upon this behavior.
 		   Since we do not have the power to recompile these, we
 		   emulate the SVr4 behavior. Sigh. */
+
+#ifdef CONFIG_ZEPTO_MEMORY
+	    if( IS_ZEPTO_TASK(current) ) {
+		zepto_debug(2,"do_mmap() addr=0  len=%08lx off=0  fs/binfmt_elf.c(%d)\n",
+		       PAGE_SIZE, __LINE__ );
+	    }
+#endif
+
 		down_write(&current->mm->mmap_sem);
 		error = do_mmap(NULL, 0, PAGE_SIZE, PROT_READ | PROT_EXEC,
 				MAP_FIXED | MAP_PRIVATE, 0);
@@ -1045,6 +1397,10 @@ static int load_elf_library(struct file *file)
 	int retval, error, i, j;
 	struct elfhdr elf_ex;
 
+#ifdef CONFIG_ZEPTO_MEMORY
+	print_mmaps("binfmt_elf.c",__LINE__);
+#endif
+
 	error = -ENOEXEC;
 	retval = kernel_read(file, 0, (char *)&elf_ex, sizeof(elf_ex));
 	if (retval != sizeof(elf_ex))
@@ -1083,6 +1439,16 @@ static int load_elf_library(struct file *file)
 	while (eppnt->p_type != PT_LOAD)
 		eppnt++;
 
+#ifdef CONFIG_ZEPTO_MEMORY
+	if( IS_ZEPTO_TASK(current) ) {
+	    zepto_debug(2,"do_mmap() addr=%08lx  len=%08lx off=%08lx  fs/binfmt_elf.c(%d)\n",
+		   ELF_PAGESTART(eppnt->p_vaddr),
+		   (eppnt->p_filesz +  ELF_PAGEOFFSET(eppnt->p_vaddr)),
+		   (eppnt->p_offset -  ELF_PAGEOFFSET(eppnt->p_vaddr)),
+		   __LINE__);
+	}
+#endif
+
 	/* Now use mmap to map the library into memory. */
 	down_write(&current->mm->mmap_sem);
 	error = do_mmap(file,
@@ -1094,6 +1460,11 @@ static int load_elf_library(struct file *file)
 			(eppnt->p_offset -
 			 ELF_PAGEOFFSET(eppnt->p_vaddr)));
 	up_write(&current->mm->mmap_sem);
+
+#ifdef CONFIG_ZEPTO_MEMORY
+	print_mmaps("binfmt_elf.c",__LINE__);
+#endif
+
 	if (error != ELF_PAGESTART(eppnt->p_vaddr))
 		goto out_free_ph;
 
@@ -1112,6 +1483,10 @@ static int load_elf_library(struct file *file)
 		up_write(&current->mm->mmap_sem);
 	}
 	error = 0;
+
+#ifdef CONFIG_ZEPTO_MEMORY
+	print_mmaps("binfmt_elf.c",__LINE__);
+#endif
 
 out_free_ph:
 	kfree(elf_phdata);

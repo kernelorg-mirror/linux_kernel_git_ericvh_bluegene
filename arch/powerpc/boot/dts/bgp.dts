@@ -1,0 +1,127 @@
+/*
+ * Device Tree Source for IBM BlueGene/P 
+ *
+ * (C) Copyright IBM Corp. 2010
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ * or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ * for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, see <http://www.gnu.org/licenses>.
+ 
+ * Author: Chris Ward <tjcw@uk.ibm.com>
+ 
+ * Josh Boyer <jwboyer@linux.vnet.ibm.com>, David Gibson <dwg@au1.ibm.com>
+ *
+ * Cloned from 'Ebony', and revised. 
+ *
+ */
+
+/dts-v1/;
+
+/ {
+	#address-cells = <2>;
+	#size-cells = <1>;
+	model = "ibm,bluegenep";
+	compatible = "ibm,bluegenep";
+	dcr-parent = <&{/cpus/cpu@0}>;
+
+/*	aliases {
+		ethernet0 = &EMAC0;
+	};
+*/
+	cpus {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		cpu@0 {
+			device_type = "cpu";
+			model = "PowerPC,450";
+			reg = <0x00000000>;
+			clock-frequency = <850000000>;
+			timebase-frequency = <850000000>;
+			i-cache-line-size = <32>;
+			d-cache-line-size = <32>;
+			i-cache-size = <32768>; /* 32 kB */
+			d-cache-size = <32768>; /* 32 kB */
+			dcr-controller;
+			dcr-access-method = "native";
+		};
+
+		cpu@1 {
+			device_type = "cpu";
+			model = "PowerPC,450";
+			reg = <0x00000000>;
+			clock-frequency = <850000000>;
+			timebase-frequency = <850000000>;
+			i-cache-line-size = <32>;
+			d-cache-line-size = <32>;
+			i-cache-size = <32768>; /* 32 kB */
+			d-cache-size = <32768>; /* 32 kB */
+			dcr-controller;
+			dcr-access-method = "native";
+		};
+
+		cpu@2 {
+			device_type = "cpu";
+			model = "PowerPC,450";
+			reg = <0x00000000>;
+			clock-frequency = <850000000>;
+			timebase-frequency = <850000000>;
+			i-cache-line-size = <32>;
+			d-cache-line-size = <32>;
+			i-cache-size = <32768>; /* 32 kB */
+			d-cache-size = <32768>; /* 32 kB */
+			dcr-controller;
+			dcr-access-method = "native";
+		};
+
+		cpu@3 {
+			device_type = "cpu";
+			model = "PowerPC,450";
+			reg = <0x00000000>;
+			clock-frequency = <850000000>;
+			timebase-frequency = <850000000>;
+			i-cache-line-size = <32>;
+			d-cache-line-size = <32>;
+			i-cache-size = <32768>; /* 32 kB */
+			d-cache-size = <32768>; /* 32 kB */
+			dcr-controller;
+			dcr-access-method = "native";
+		};
+	};
+
+	memory {
+		device_type = "memory";
+		reg = <0x00000000 0x00000000 0x00000000>; // from wrapper
+	};
+
+	ibm,bluegene {
+		cns {	// from wrapper
+			version	 = <0>;
+			size	 = <0>;
+        		base-va  = <0>;
+			base-pa  = <0>; // assume <= 4G
+			services = <0>;
+		};
+		personality {	// from wrapper
+			version		= <0>;
+			frequency 	= <850000000>;
+		};
+    	};
+
+	chosen {
+		bootargs = "console=bgcons root=/dev/ram0 lpj=8500000 profile=2 log_buf_len=8388608 rdinit=/sbin/init";
+
+		// the bgp wrapper locates a ramdisk and updates initrd-start/end
+		linux,initrd-start = <0>;
+		linux,initrd-end = <0>;
+	};
+};

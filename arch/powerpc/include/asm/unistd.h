@@ -344,7 +344,25 @@
 
 #ifdef __KERNEL__
 
+#ifdef CONFIG_BLUEGENE
+
+/* See also arch/powerpc/kernel/systbl.S */
+
+#ifdef CONFIG_ZEPTO
+#define __NR_zepto_generic      1048  /* ni_syscall is filled until 1047 */
+#define __NR_zepto_bigmem       1049
+#define __NR_zepto_lockbox      1050
+#define __NR_zepto_dma          1051
+#define __NR_syscalls           1052
+#else
+#define __NR_syscalls           1048
+#endif // CONFIG_ZEPTO
+
+#else
+
 #define __NR_syscalls		319
+
+#endif
 
 #define __NR__exit __NR_exit
 #define NR_syscalls	__NR_syscalls

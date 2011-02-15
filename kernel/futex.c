@@ -56,6 +56,10 @@
 #include <linux/pid.h>
 #include <linux/nsproxy.h>
 
+#ifdef CONFIG_ZEPTO_MEMORY
+#include <linux/zepto_task.h>
+#endif
+
 #include <asm/futex.h>
 
 #include "rtmutex_common.h"
@@ -218,6 +222,17 @@ static int get_futex_key(u32 __user *uaddr, int fshared, union futex_key *key)
 	if (unlikely((address % sizeof(u32)) != 0))
 		return -EINVAL;
 	address -= key->both.offset;
+
+#ifdef CONFIG_ZEPTO_MEMORY
+	/* XXX: not sure this is enough */
+	if ( enable_bigmem && IS_ZEPTO_TASK(current) && 
+	     ( address >= get_bigmem_region_start() &&
+	       address < get_bigmem_region_end() ) ) 
+	{
+		key->private.mm = mm;
+		key->private.address = address;
+	}   
+#endif
 
 	/*
 	 * PROCESS_PRIVATE futexes are fast.

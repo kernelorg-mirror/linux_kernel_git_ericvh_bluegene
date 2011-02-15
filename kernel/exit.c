@@ -49,6 +49,11 @@
 #include <linux/init_task.h>
 #include <trace/sched.h>
 
+#ifdef CONFIG_ZEPTO_MEMORY
+#include <linux/zepto_debug.h>
+#include <linux/zepto_task.h>
+#endif
+
 #include <asm/uaccess.h>
 #include <asm/unistd.h>
 #include <asm/pgtable.h>
@@ -1069,6 +1074,31 @@ NORET_TYPE void do_exit(long code)
 	tsk->exit_code = code;
 	taskstats_exit(tsk, group_dead);
 
+#ifdef CONFIG_ZEPTO_MEMORY
+        if( IS_ZEPTO_TASK(tsk) ) {
+		zepto_debug(2, "exit() is called from a compute task. pid=%d tpid=%d empty=%d is_leader=%d enable_bigmem=%d\n",
+			    tsk->pid, tsk->tgid, thread_group_empty(current), tsk == tsk->group_leader, enable_bigmem);
+
+		while ( delay_group_leader( tsk ) ) 
+			yield();
+			/* the thread leader is exiting, but the thread group is not empty yet */
+
+		if( thread_group_empty( tsk ) ) {
+			/* at this point, only the thread leader is still alive */
+			zepto_debug(1, "cleaning up flatmem: pid=%d, tpid=%d, empty=%d, is_leader=%d\n", 
+				    tsk->pid, tsk->tgid, thread_group_empty(tsk), tsk == tsk->group_leader);
+			/* computetask exit procedure must be called when the last thread exits */
+			bigmem_process_release();
+			if ( enable_bigmem ) {
+				if ( bigmem_mmap_finalize() != BIGMEM_MMAP_SUCCESS) {
+					printk(KERN_ALERT  "[Z] bigmem_mmap_finalize() failed.\n");
+				}
+				free_bigmem_tlb();
+			}
+			zepto_debug(1, "A zepto task exited.\n");
+		}
+	}
+#endif
 	exit_mm(tsk);
 
 	if (group_dead)

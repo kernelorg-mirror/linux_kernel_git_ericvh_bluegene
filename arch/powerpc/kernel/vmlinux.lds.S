@@ -263,6 +263,12 @@ SECTIONS
 		*(.data.init_task)
 	}
 
+#ifdef CONFIG_ZEPTO
+	. = ALIGN(262144);
+	.cns.256KB_aligned : AT(ADDR(.cns.256KB_aligned) - LOAD_OFFSET) {
+		*(.cns.256KB_aligned)
+	}
+#endif
 	. = ALIGN(PAGE_SIZE);
 	.data.page_aligned : AT(ADDR(.data.page_aligned) - LOAD_OFFSET) {
 		*(.data.page_aligned)

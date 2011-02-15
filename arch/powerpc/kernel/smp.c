@@ -489,6 +489,14 @@ int __devinit start_secondary(void *unused)
 	current->active_mm = &init_mm;
 
 	smp_store_cpu_info(cpu);
+
+#if defined(CONFIG_BOOKE) || defined(CONFIG_40x)
+	/* Clear any pending timer interrupts */
+	mtspr(SPRN_TSR, TSR_ENW | TSR_WIS | TSR_DIS | TSR_FIS);
+
+	/* Enable decrementer interrupt */
+	mtspr(SPRN_TCR, TCR_DIE);
+#endif
 	set_dec(tb_ticks_per_jiffy);
 	preempt_disable();
 	cpu_callin_map[cpu] = 1;
@@ -548,6 +556,13 @@ int setup_profiling_timer(unsigned int multiplier)
 void __init smp_cpus_done(unsigned int max_cpus)
 {
 	cpumask_t old_mask;
+
+#ifdef CONFIG_ZEPTO_CNS_RELOCATION
+	extern void erase_CNS_orig(void);  /* defined in platforms/44x/bgp_cns.c */
+
+	printk("Z: smp_cpus_done  max_cpus=%d\n", max_cpus);
+	erase_CNS_orig();
+#endif
 
 	/* We want the setup_cpu() here to be called from CPU 0, but our
 	 * init thread may have been "borrowed" by another CPU in the meantime

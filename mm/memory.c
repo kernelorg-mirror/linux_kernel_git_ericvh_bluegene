@@ -62,6 +62,10 @@
 #include <asm/tlbflush.h>
 #include <asm/pgtable.h>
 
+#ifdef CONFIG_ZEPTO_MEMORY
+#include <linux/zepto_task.h>
+#endif
+
 #include "internal.h"
 
 #ifndef CONFIG_NEED_MULTIPLE_NODES
@@ -1360,6 +1364,15 @@ int get_user_pages(struct task_struct *tsk, struct mm_struct *mm,
 		struct page **pages, struct vm_area_struct **vmas)
 {
 	int flags = 0;
+
+#ifdef CONFIG_ZEPTO_MEMORY
+	/* bigmemory is not handled in pages, so it simply returns an error */
+	if (enable_bigmem && IS_ZEPTO_TASK(tsk)) {
+		if (get_bigmem_region_start() <= start && 
+		    start+len < get_bigmem_region_end()) 
+			return -EFAULT;
+	}
+#endif
 
 	if (write)
 		flags |= GUP_FLAGS_WRITE;
@@ -3079,6 +3092,37 @@ int access_process_vm(struct task_struct *tsk, unsigned long addr, void *buf, in
 	mm = get_task_mm(tsk);
 	if (!mm)
 		return 0;
+
+#ifdef CONFIG_ZEPTO_MEMORY
+	if (enable_bigmem && IS_ZEPTO_TASK(tsk)) {
+		if (get_bigmem_region_start() <= addr &&
+		    addr+len < get_bigmem_region_end()) {
+			if (tsk == current) {
+				if (write)
+					memcpy((void*)addr, buf, len);
+				else
+					memcpy(buf, (void*)addr, len);
+			} else {
+				unsigned addr_pa = (addr - get_bigmem_region_start())+get_bigmem_pa_start();
+				void __iomem *bigmem_addr;
+				
+				bigmem_addr = __ioremap((phys_addr_t)addr_pa, len, 0);
+				if (!bigmem_addr) {
+					printk(KERN_ERR "[Z] access_process_vm(): ioremap() failed. addr_pa=%p\n", (void*)addr_pa);
+					return 0;
+				}
+				if (write)
+					memcpy( bigmem_addr, buf, len);
+				else
+					memcpy( buf, bigmem_addr, len);
+				iounmap(bigmem_addr);
+			}
+
+			return len;
+		}
+	}
+#endif
+
 
 	down_read(&mm->mmap_sem);
 	/* ignore errors, just check how much was successfully transferred */

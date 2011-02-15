@@ -2628,6 +2628,166 @@ config QLGE
 	  To compile this driver as a module, choose M here: the module
 	  will be called qlge.
 
+config BGP_COLLECTIVE
+	tristate "BlueGene Ethernet-on-Collective support"
+	default y if BGP=y
+    depends on BGP
+	help
+	  This driver supports the BlueGene Ethernet-over-collective
+	  controller, for running IP between IO and Compute nodes.
+	  
+config BGP_COLLECTIVE_IP_CHECKSUM
+	bool "Request IP-layer software checksum on the BGP collective"
+	default y
+	depends on BGP_COLLECTIVE
+	help
+	  The BlueGene collective network has hardware CRC-and-retry, which is stronger than IP checksum
+	  But you can select IP checksumming as well.
+
+config BGP_COLLECTIVE_NAPI
+	tristate "BlueGene Ethernet-on-Collective NAPI support"
+	default n
+    depends on BGP
+	help
+	  This configures the BGP collective driver to use NAPI interrupt mitigation
+	  
+config BGP_DMA
+	tristate "BlueGene Torus DMA support"
+	default y if BGP=y
+    depends on BGP
+	help
+	  This driver supports the BlueGene torus DMA unit.
+	  You will need it if you want to use BGP_TORUS
+	  
+config BGP_TORUS
+	tristate "BlueGene Ethernet-on-Torus support"
+	default y if BGP=y
+    depends on BGP
+	help
+	  This driver supports the BlueGene Ethernet-over-torus
+	  controller, for running IP amongst Compute nodes
+	  
+config BGP_TORUS_DIAGNOSTICS
+	bool "Diagnostics for BlueGene Ethernet-on-Torus"
+	default y if BGP=y
+	depends on BGP
+	help
+	  This inserts diagnostics into the TCP layers, to support
+	  optimisation of the IP-on-BlueGene-Torus code
+	
+config BGP_FRANKENTORUS
+	tristate "BlueGene Ethernet-on-Torus support, vrnic-style"
+	default n
+    depends on BGP
+	help
+	  This driver supports the BlueGene Ethernet-over-torus vrnic
+	  controller, for running IP amongst Compute nodes
+	
+config BGP_TORUS_IP_CHECKSUM
+	bool "Request IP-layer software checksum on the BGP torus"
+	default y
+	depends on 	BGP_TORUS
+	help
+	  The BlueGene torus network has hardware CRC-and-retry, which is stronger than IP checksum
+	  But you can select IP checksumming as well.
+
+config BGP_RECEPTION_MEMORY_FIFO_SHIFT 
+        int "log2(BlueGene torus software reception FIFO size)"
+        depends on BGP
+        default "24"
+        help
+          FIFO should be somewhere between 64kB and 32MB
+
+config BGP_TORUS_ADAPTIVE_ROUTING
+	tristate "BlueGene Ethernet-on-Torus with adaptive routing"
+	default n
+    depends on BGP
+	help
+	  Support for IP with adaptive packet routing on the torus (experimental)
+	  
+config BGP_VRNIC
+	tristate "BlueGene virtual RNIC support"
+	default m if BGP=y
+    depends on BGP
+	help
+	  This driver supports the BlueGene virtual RNIC
+	  controller, for running test cases against the vRNIC
+	  
+config BGP_VRNIC_START
+		hex "Real address start of BGP VRNIC. Linux not to inadvertently use real store in this region"
+	    depends on BGP_VRNIC
+		default "0xe0000000"
+		 	         
+config BGP_VRNIC_SIZE
+		hex "Number of bytes of memory put over to BGP VRNIC. Linux not to inadvertently use real store in this region"
+	    depends on BGP_VRNIC
+		default "0x10000000"
+		
+config BGP_STATISTICS
+	tristate "BlueGene Statistics support"
+	default y if BGP=y
+    depends on BGP
+	help
+	  This driver supports gathering of statistics related to 
+	  BlueGene/P hardware
+	  
+
+config BGP_E10000
+        tristate "BlueGene on-chip Ethernet support"
+        default Y if BGP=y
+        depends on BGP
+        help
+          This driver supports the BlueGene 10Gb on-chip Ethernet
+          controller.
+
+config BGP_E10000_RXB 
+        int "Total size in bytes of receive buffers (1MB maximum)"
+        depends on BGP_E10000
+        default "1048576"
+
+config BGP_E10000_TXB
+        int "Number of transmit buffers"
+        depends on BGP_E10000
+        default "4096"
+
+config BGP_E10000_IP_CHECKSUM
+        bool "Enable HW checksum for TCP/UDP IPv4 traffic"
+        depends on BGP_E10000
+        default y
+
+config BGP_E10000_NAPI
+        bool "Enable 'new API' network interface"
+        depends on BGP_E10000
+        default n
+
+config BGP_E10000_EMAC_LOOPBACK
+        bool "Enable MAC loopback mode"
+        depends on BGP_E10000
+        help
+          This ties the output path directly to the input path at the MAC level.
+        default n
+
+config BGP_E10000_PHY_LOOPBACK
+        bool "Enable PHY loopback mode"
+        depends on BGP_E10000
+        help
+          This ties the output path directly to the input path in the PHY.
+        default n
+
+config BGP_E10000_DBG
+        bool "Debug enablement"
+        depends on BGP_E10000
+        help
+          This enables debug output.
+        default n
+
+config BGP_E10000_DBG_LEVEL
+        int "Debug level"
+        depends on BGP_E10000_DBG
+        help
+          This sets the amount of debug output.
+        default 57
+
 source "drivers/net/sfc/Kconfig"
 
 source "drivers/net/benet/Kconfig"
@@ -3091,6 +3251,23 @@ config NETPOLL_TRAP
 
 config NET_POLL_CONTROLLER
 	def_bool NETPOLL
+	
+config TCP_HIATUS_COUNTS
+	bool "TCP output hiatus counts"
+	default n
+	help
+	  This option counts the number of times that TCP output is held back
+	  by reason (e.g. 'congestion window filled'). It is useful if you are
+	  trying to exploit fast networks, to help pin down what is limiting
+	  the transfer rate.
+	  
+config TCP_CONGESTION_OVERRIDES
+	bool "TCP output congestion overrides"
+	default n
+	help
+	  This option places controls in sysfs so that TCP congestion parameters
+	  can be overridden system-wide; e.g. turning Nagle off	  
+	
 
 config VIRTIO_NET
 	tristate "Virtio network driver (EXPERIMENTAL)"

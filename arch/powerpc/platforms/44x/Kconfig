@@ -2,7 +2,6 @@ config BAMBOO
 	bool "Bamboo"
 	depends on 44x
 	default n
-	select PPC44x_SIMPLE
 	select 440EP
 	select PCI
 	help
@@ -31,7 +30,6 @@ config SEQUOIA
 	bool "Sequoia"
 	depends on 44x
 	default n
-	select PPC44x_SIMPLE
 	select 440EPX
 	help
 	  This option enables support for the AMCC PPC440EPX evaluation board.
@@ -40,7 +38,6 @@ config TAISHAN
 	bool "Taishan"
 	depends on 44x
 	default n
-	select PPC44x_SIMPLE
 	select 440GX
 	select PCI
 	help
@@ -51,7 +48,6 @@ config KATMAI
 	bool "Katmai"
 	depends on 44x
 	default n
-	select PPC44x_SIMPLE
 	select 440SPe
 	select PCI
 	select PPC4xx_PCI_EXPRESS
@@ -62,7 +58,6 @@ config RAINIER
 	bool "Rainier"
 	depends on 44x
 	default n
-	select PPC44x_SIMPLE
 	select 440GRX
 	select PCI
 	help
@@ -81,53 +76,34 @@ config WARP
 	  See http://www.pikatechnologies.com/ and follow the "PIKA for Computer
 	  Telephony Developers" link for more information.
 
-config ARCHES
-	bool "Arches"
-	depends on 44x
-	default n
-	select PPC44x_SIMPLE
-	select 460EX # Odd since it uses 460GT but the effects are the same
-	select PCI
-	select PPC4xx_PCI_EXPRESS
-	help
-	  This option enables support for the AMCC Dual PPC460GT evaluation board.
-
 config CANYONLANDS
 	bool "Canyonlands"
 	depends on 44x
 	default n
-	select PPC44x_SIMPLE
 	select 460EX
 	select PCI
 	select PPC4xx_PCI_EXPRESS
-	select IBM_NEW_EMAC_RGMII
-	select IBM_NEW_EMAC_ZMII
 	help
 	  This option enables support for the AMCC PPC460EX evaluation board.
-
-config GLACIER
-	bool "Glacier"
-	depends on 44x
-	default n
-	select PPC44x_SIMPLE
-	select 460EX # Odd since it uses 460GT but the effects are the same
-	select PCI
-	select PPC4xx_PCI_EXPRESS
-	select IBM_NEW_EMAC_RGMII
-	select IBM_NEW_EMAC_ZMII
-	help
-	  This option enables support for the AMCC PPC460GT evaluation board.
 
 config YOSEMITE
 	bool "Yosemite"
 	depends on 44x
 	default n
-	select PPC44x_SIMPLE
 	select 440EP
 	select PCI
 	help
 	  This option enables support for the AMCC PPC440EP evaluation board.
 
+config BGP
+    bool "Blue Gene/P"
+	depends on 44x
+	default y
+	select BLUEGENE
+	help
+      This option enables support for the IBM Blue Gene/P supercomputer.
+	
+    
 #config LUAN
 #	bool "Luan"
 #	depends on 44x
@@ -159,21 +135,6 @@ config XILINX_VIRTEX440_GENERIC_BOARD
 
 	  Most Virtex 5 designs should use this unless it needs to do some
 	  special configuration at board probe time.
-
-config PPC44x_SIMPLE
-	bool "Simple PowerPC 44x board support"
-	depends on 44x
-	default n
-	help
-	  This option enables the simple PowerPC 44x platform support.
-
-config PPC4xx_GPIO
-	bool "PPC4xx GPIO support"
-	depends on 44x
-	select ARCH_REQUIRE_GPIOLIB
-	select GENERIC_GPIO
-	help
-	  Enable gpiolib support for ppc440 based boards
 
 # 44x specific CPU modules, selected based on the board above.
 config 440EP
@@ -218,6 +179,8 @@ config 460EX
 	bool
 	select PPC_FPU
 	select IBM_NEW_EMAC_EMAC4
+	select IBM_NEW_EMAC_RGMII
+	select IBM_NEW_EMAC_ZMII
 	select IBM_NEW_EMAC_TAH
 
 # 44x errata/workaround config symbols, selected by the CPU models above
@@ -233,3 +196,271 @@ config XILINX_VIRTEX_5_FXT
 	bool
 	select XILINX_VIRTEX
 
+config BLUEGENE
+        bool
+        select PPC_FPU
+        select PPC_DOUBLE_FPU
+        
+config BLUEGENE_NOISY_BOOT
+	bool "Send Blue Gene boot messages to the control system"
+	depends on BLUEGENE
+	default n
+	help
+		Select this if you need to diagnose faults with the IO or Compute node kernel boot.
+	
+config BLUEGENE_MAMBO
+        bool "Run on Blue Gene/P Mambo Simulator"
+        depends on BGP
+
+config L1_WRITETHROUGH
+        bool "Blue Gene enable writethrough mode"
+        depends on BLUEGENE
+        default n
+
+config BGP_DD1
+        bool "Blue Gene enable workarounds for BG/P DD1"
+        default n
+        
+config BLUEGENE_TCP
+ bool "Blue Gene/P TCP on Torus"
+ default y if BGP
+ 
+config BLUEGENE_DMA_MEMCPY
+  bool "Blue Gene copy_tofrom_user optimisation with the torus DMA unit"
+  depends on BLUEGENE
+  default n
+  help
+   'copyin/out' via the BGP DMA is believed functional, but seems not useful since copying via the parallel FP regs 
+   seems to run faster, even in cases where that wipes out the L1 cache. Code is left here in case someone wants to 
+   try improving it, and to indicate which sections of the BGP DMA unit (injection fifo and reception counters) are needed 
+   to make it work.
+  
+ 
+config BLUEGENE_COLLECTIVE_TRACE
+ bool "Activate diagnostic trace in BlueGene/P collective network"
+ default y if BGP
+ 
+config BLUEGENE_TORUS_TRACE
+ bool "Activate diagnostic trace in BlueGene/P torus network"
+ default y if BGP
+ 
+
+config BLUEGENE_TCP_WITHOUT_NAPI
+ bool "Blue Gene/P TCP interrupt every packet (no NAPI) for debugging"
+ default n
+
+config BLUEGENE_UNIPROCESSOR
+ bool "Force BlueGene to run uniprocessor (450 debugging, or vrnic)"
+ depends on BLUEGENE
+ default n
+ 
+config BLUEGENE_STATISTICS
+ bool "Maintain statistics related to BlueGene networking"
+ depends on BLUEGENE
+ default y
+ 
+config BLUEGENE_SHARE_WITH_VRNIC
+  bool "Allow vRNIC to map all of Linux memory"
+  depends on BLUEGENE
+  default n 
+ 
+config BGP_NFS_FIX
+  bool "Attempt a fix for disappearing files and directories under NFS"
+  default n
+ 
+config HUGE_KMALLOC
+  bool "Allow for 32MB kmalloc blocks"
+  default y if BGP   
+  
+config TASK_UNMAPPED_BASE
+  hex "Base virtual address for mmap"
+  depends on BGP
+  default "0x20000000"
+  help
+    processor.h will set this to (TASK_SIZE / 8 * 3) if you do not set it here
+
+config DEBUG_ALIGNMENT_HISTOGRAM
+ bool "copy_tofrom_user alignment histograms"
+ default y
+ help
+   Enables maintenance of alignment histograms for copy_tofrom_user and similar functions,
+   to explore whether alternative implementations might be useful for performance.
+
+config DEBUG_STACK_USAGE
+	bool "Stack utilization instrumentation"
+	default y if BGP
+        help
+          Enables the display of the minimum amount of free stack which each
+          task has ever had available in the sysrq-T and sysrq-P debug output.
+
+          This option will slow down process creation somewhat.
+
+config BOOKE
+	bool
+	depends on 44x
+	default y
+
+config IBM_OCP
+	bool
+	depends on ASH || BAMBOO || BLUEGENE || BUBINGA || CPCI405 || EBONY || EP405 || LUAN || YUCCA || OCOTEA || REDWOOD_5 || REDWOOD_6 || SYCAMORE || WALNUT
+	default y
+
+config IBM_EMAC4
+	bool
+	depends on 440GX || 440SP || 440SPE || BLUEGENE
+	default y
+
+        config 405EP
+	bool
+	depends on BUBINGA
+	default y
+
+# Some of the items below might not be quite riight; I'm putting part of the 2.6.19 Kconfig in here, enough
+# to get a BGP build working. tjcw.
+config 405GP
+	bool
+	depends on CPCI405 || EP405 || WALNUT
+	default y
+
+config 405GPR
+	bool
+	depends on SYCAMORE
+	default y
+
+config STB03xxx
+	bool
+	depends on REDWOOD_5 || REDWOOD_6
+	default y
+
+config EMBEDDEDBOOT
+	bool
+	depends on EP405 || XILINX_ML300 || XILINX_ML403
+	default y
+
+config IBM_OPENBIOS
+	bool
+	depends on ASH || REDWOOD_5 || REDWOOD_6
+	default y
+
+config PPC4xx_DMA
+	bool "PPC4xx DMA controller support"
+	depends on 4xx
+
+config PPC4xx_EDMA
+	bool
+	depends on !STB03xxx && PPC4xx_DMA
+	default y
+
+config PPC_GEN550
+	bool
+	depends on 4xx
+	default y
+
+choice
+	prompt "TTYS0 device and default console"
+	depends on 40x
+	default UART0_TTYS0
+
+config UART0_TTYS0
+	bool "UART0"
+
+config UART0_TTYS1
+	bool "UART1"
+
+endchoice
+
+config SERIAL_SICC
+	bool "SICC Serial port support"
+	depends on STB03xxx
+
+config UART1_DFLT_CONSOLE
+	bool
+	depends on SERIAL_SICC && UART0_TTYS1
+	default y
+
+config SERIAL_SICC_CONSOLE
+	bool
+	depends on SERIAL_SICC && UART0_TTYS1
+	default y
+
+
+# Kernel options for Zepto
+#
+# XXX: Where is the good place to put the zepto options?
+#
+menu "Zepto setup"
+
+config ZEPTO
+       bool "Enable BGP Base Zepto Features (EXPERIMENTAL)"
+       depends on EXPERIMENTAL && BLUEGENE
+       help
+          Codes work on both CN and ION are categorized in Base Zepto
+	  Features, so mostly misc codes such as kernel params.
+
+config ZEPTO_DEBUG
+       bool "Enable Zepto Debug Message"
+       default y
+       depends on ZEPTO
+       help
+          Enable Zepto Debug Message. You can control debug output level
+	  by the zepto_debug kernel parameter.
+
+config ZEPTO_MEMORY
+       bool "Enable BGP Zepto Memory Feature"
+       depends on ZEPTO
+       help
+          Kernel automatically maps all application segments to physical
+          contiguous memory (virtual contiguous, off course) if zepto
+          attribute in ELF header is set. This is per cpu resource right now
+	  and eventually per core resource.
+
+config ZEPTO_CNS_RELOCATION
+       bool "Relocate CNS physical memory location"
+       depends on ZEPTO_MEMORY
+       help
+          CNS is located at the end of physical memory (0x7ffc0000 in 2GB main
+          memory machine), which prevents us to use last 256MB physical memory
+          region. With this option, CNS is relocated to a pre-allocated buffer in
+          kernel data section so that we can free up.
+
+config ZEPTO_LOCKBOX_UPC_TLB
+       bool "Statically install 3 TLBs for LOCKBOX and UPC"
+       help
+          This option is helpful when we need LOCKBOX and UPC on ION w/o other
+          COMPUTENODE feature. This option is on for COMPUTENODE usage.
+	  We can use this option w/o enabling ZEPTO_MEMORY.
+
+config ZEPTO_TREE_TORUS_TLB
+	bool "Statically install additional 3 TLBs for TREE and TORUS"
+	depends on ZEPTO_LOCKBOX_UPC_TLB
+	help
+	   this is basically for compute node
+
+config ZEPTO_COMPUTENODE
+       bool "Enable BGP Zepto CoputeNode Features"
+       depends on ZEPTO_MEMORY && ZEPTO_TREE_TORUS_TLB
+       help
+          Reserve TLBs for Bigmem and pin TLB down for compute node specific devices, etc
+
+config ZEPTO_EXPERIMENTAL
+       bool "Enable Zepto experimental codes"
+       depends on ZEPTO_COMPUTENODE
+       default n
+       help
+       - Synchronize OS tick globally: disabled by default. Add "globaltick" to the kernel
+       params to enable it.
+
+       - Disable the L1 parity recoverability: enabled by default. Add "noPRE"
+         to the kernel params. No guaratee on data-integrity wehn L1 parity
+         error happened
+
+       - Disble the L2 optimistic pre-fetch: it is enabled by default. Add
+         "noU3"
+
+       - System call to get the decrementer value. syscall# 1050. This is used
+         by a benchmark code that measures OS tick synchronicity
+
+
+endmenu  # Zepto setup
+
+        

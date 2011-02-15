@@ -281,7 +281,24 @@ extern int arch_setup_additional_pages(struct linux_binprm *bprm,
  * - for compatibility with glibc ARCH_DLINFO must always be defined on PPC,
  *   even if DLINFO_ARCH_ITEMS goes to zero or is undefined.
  * update AT_VECTOR_SIZE_ARCH if the number of NEW_AUX_ENT entries changes
+ *
+ * For BlueGene (450 processor), don't tell the app about the dcache line size
+ * because the 'dcbz' optimisation in glibc memset.S has to be emulated by the
+ * kernel trap handler and slows things down
  */
+#if defined(CONFIG_BLUEGENE)
+#define ARCH_DLINFO							\
+do {									\
+	/* Handle glibc compatibility. */				\
+	NEW_AUX_ENT(AT_IGNOREPPC, AT_IGNOREPPC);			\
+	NEW_AUX_ENT(AT_IGNOREPPC, AT_IGNOREPPC);			\
+  NEW_AUX_ENT(AT_IGNOREPPC, AT_IGNOREPPC);      \
+	/* Cache size items */						\
+	NEW_AUX_ENT(AT_ICACHEBSIZE, icache_bsize);			\
+	NEW_AUX_ENT(AT_UCACHEBSIZE, ucache_bsize);			\
+	VDSO_AUX_ENT(AT_SYSINFO_EHDR, current->mm->context.vdso_base)	\
+} while (0)
+#else
 #define ARCH_DLINFO							\
 do {									\
 	/* Handle glibc compatibility. */				\
@@ -293,6 +310,7 @@ do {									\
 	NEW_AUX_ENT(AT_UCACHEBSIZE, ucache_bsize);			\
 	VDSO_AUX_ENT(AT_SYSINFO_EHDR, current->mm->context.vdso_base)	\
 } while (0)
+#endif
 
 /* PowerPC64 relocations defined by the ABIs */
 #define R_PPC64_NONE    R_PPC_NONE

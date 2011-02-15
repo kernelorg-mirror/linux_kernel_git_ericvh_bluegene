@@ -491,6 +491,7 @@ END_FTR_SECTION_IFSET(CPU_FTR_COHERENT_ICACHE)
  *
  * void clear_pages(void *page, int order) ;
  */
+#if !defined(CONFIG_WRAP_COPY_TOFROM_USER) || !defined(CONFIG_BGP_TORUS)
 _GLOBAL(clear_pages)
 	li	r0,PAGE_SIZE/L1_CACHE_BYTES
 	slw	r0,r0,r4
@@ -502,12 +503,25 @@ _GLOBAL(clear_pages)
 	stw	r4, 8(r3)
 	stw	r4, 12(r3)
 #else
+#ifdef CONFIG_L1_WRITETHROUGH
+        /* assuming 32 byte cacheline */
+	li	r4, 0
+1:	stw	r4, 0(r3)
+	stw	r4, 4(r3)
+	stw	r4, 8(r3)
+	stw	r4, 12(r3)
+	stw	r4, 16(r3)
+	stw	r4, 20(r3)
+	stw	r4, 24(r3)
+	stw	r4, 28(r3)
+#else
 1:	dcbz	0,r3
+#endif
 #endif
 	addi	r3,r3,L1_CACHE_BYTES
 	bdnz	1b
 	blr
-
+#endif
 /*
  * Copy a whole page.  We use the dcbz instruction on the destination
  * to reduce memory traffic (it eliminates the unnecessary reads of
@@ -524,6 +538,7 @@ _GLOBAL(clear_pages)
 	stw	r8,12(r3);	\
 	stwu	r9,16(r3)
 
+#if !defined(CONFIG_WRAP_COPY_TOFROM_USER) || !defined(CONFIG_BGP_TORUS)
 _GLOBAL(copy_page)
 	addi	r3,r3,-4
 	addi	r4,r4,-4
@@ -556,7 +571,9 @@ _GLOBAL(copy_page)
 	mtctr	r0
 1:
 	dcbt	r11,r4
+#ifndef CONFIG_L1_WRITETHROUGH
 	dcbz	r5,r3
+#endif
 	COPY_16_BYTES
 #if L1_CACHE_BYTES >= 32
 	COPY_16_BYTES
@@ -578,6 +595,7 @@ _GLOBAL(copy_page)
 	li	r11,4
 	b	2b
 #endif	/* CONFIG_8xx */
+#endif /* CONFIG_WRAP_COPY_TOFROM_USER */
 
 /*
  * void atomic_clear_mask(atomic_t mask, atomic_t *addr)

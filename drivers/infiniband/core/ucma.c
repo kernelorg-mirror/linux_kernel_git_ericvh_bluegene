@@ -48,7 +48,7 @@ MODULE_DESCRIPTION("RDMA Userspace Connection Manager Access");
 MODULE_LICENSE("Dual BSD/GPL");
 
 enum {
-	UCMA_MAX_BACKLOG	= 128
+	UCMA_MAX_BACKLOG	= 8192
 };
 
 struct ucma_file {
@@ -265,6 +265,7 @@ static int ucma_event_handler(struct rdma_cm_id *cm_id,
 	mutex_lock(&ctx->file->mut);
 	if (event->event == RDMA_CM_EVENT_CONNECT_REQUEST) {
 		if (!ctx->backlog) {
+		    printk(KERN_INFO "(E) ucma_event_handler RDMA_CM_EVENT_CONNECT_REQUEST but no backlog, ENOMEM\n") ;
 			ret = -ENOMEM;
 			kfree(uevent);
 			goto out;

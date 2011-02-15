@@ -208,9 +208,16 @@ config PPC_EARLY_DEBUG_BEAT
 	help
 	  Select this to enable early debugging for Celleb with Beat.
 
+config PPC_EARLY_DEBUG_BGP
+	bool "Early debugging for BGP"
+	depends on BLUEGENE
+	help
+	  Select this and BLUEGENE_NOISY_BOOT to enably early debugging for
+	  BGP Node. See arch/powerpc/boot/bgp.c
+		
 config PPC_EARLY_DEBUG_44x
 	bool "Early serial debugging for IBM/AMCC 44x CPUs"
-	depends on 44x
+	depends on 44x && !BLUEGENE
 	help
 	  Select this to enable early debugging for IBM 44x chips via the
 	  inbuilt serial port.  If you enable this, ensure you set

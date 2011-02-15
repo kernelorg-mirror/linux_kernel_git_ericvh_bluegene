@@ -5,6 +5,12 @@
 obj-$(CONFIG_E1000) += e1000/
 obj-$(CONFIG_E1000E) += e1000e/
 obj-$(CONFIG_IBM_NEW_EMAC) += ibm_newemac/
+obj-$(CONFIG_BGP_E10000) += bgp_e10000/
+obj-$(CONFIG_BGP_COLLECTIVE) += bgp_collective/
+obj-$(CONFIG_WRAP_COPY_TOFROM_USER) += bgp_memcpy/
+obj-$(CONFIG_BGP_TORUS) += bgp_torus/
+obj-$(CONFIG_BGP_STATISTICS) += bgp_statistics/
+# obj-$(CONFIG_BLUEGENE_SOCKETS) += bgp_sockets/
 obj-$(CONFIG_IGB) += igb/
 obj-$(CONFIG_IXGBE) += ixgbe/
 obj-$(CONFIG_IXGB) += ixgb/

@@ -28,6 +28,10 @@
 #include <asm/cacheflush.h>
 #include <asm/tlbflush.h>
 
+#ifdef CONFIG_ZEPTO_MEMORY
+#include <linux/zepto_task.h>
+#endif
+
 #ifndef pgprot_modify
 static inline pgprot_t pgprot_modify(pgprot_t oldprot, pgprot_t newprot)
 {
@@ -228,6 +232,16 @@ SYSCALL_DEFINE3(mprotect, unsigned long, start, size_t, len,
 	prot &= ~(PROT_GROWSDOWN|PROT_GROWSUP);
 	if (grows == (PROT_GROWSDOWN|PROT_GROWSUP)) /* can't be both */
 		return -EINVAL;
+
+#ifdef CONFIG_ZEPTO_MEMORY
+	/* if mprotect target address is within bigmem range, just return */
+	if (IS_ZEPTO_TASK(current) && enable_bigmem) {
+		if (get_bigmem_region_start() <= start &&
+		    start+len < get_bigmem_region_end() ) {
+			return 0;
+		}
+	}
+#endif
 
 	if (start & ~PAGE_MASK)
 		return -EINVAL;

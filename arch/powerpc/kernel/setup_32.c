@@ -44,6 +44,13 @@
 
 #define DBG(fmt...)
 
+#ifdef CONFIG_ZEPTO
+#include <linux/utsname.h>
+int zepto_debug_level = 1;
+
+#endif
+
+
 extern void bootx_init(unsigned long r4, unsigned long phys);
 
 int boot_cpuid;
@@ -68,6 +75,15 @@ EXPORT_SYMBOL(vgacon_remap_base);
 int dcache_bsize;
 int icache_bsize;
 int ucache_bsize;
+
+#ifdef CONFIG_ZEPTO
+/* XXX: this might not be an approrpite location to add this code. */
+int zepto_kparam_noPRE;
+int zepto_kparam_noU3;
+int zepto_kparam_globaltick;
+int zepto_kparam_tickdesync;
+#endif
+
 
 /*
  * We're called here very early in the boot.  We determine the machine
@@ -285,6 +301,36 @@ void __init setup_arch(char **cmdline_p)
 	if (ppc_md.init_early)
 		ppc_md.init_early();
 
+#ifdef CONFIG_ZEPTO
+	{
+	    char* optstr = "zepto_debug=";
+	    if(strstr(cmd_line, optstr) ) {
+		char* p;
+		p = strstr( cmd_line, optstr );
+		if( p && (strlen(p)-strlen(optstr))>0 ) { 
+		    p=p+strlen(optstr);
+		    zepto_debug_level=simple_strtoul(p,&p,0);
+		}
+	    }
+	}
+
+	if(strstr(cmd_line,"noPRE")) zepto_kparam_noPRE = 1;	
+	else  		zepto_kparam_noPRE = 0;
+
+	if(strstr(cmd_line,"noU3")) zepto_kparam_noU3 = 1;	
+	else  		zepto_kparam_noU3 = 0;
+
+#ifdef  CONFIG_ZEPTO_COMPUTENODE
+	if(strstr(cmd_line,"globaltick")) zepto_kparam_globaltick = 1;
+	else  		zepto_kparam_globaltick = 0;
+
+	if(strstr(cmd_line,"tickdesync")) zepto_kparam_tickdesync = 1;
+	else  		zepto_kparam_tickdesync = 0;
+#endif
+
+#endif
+
+
 	find_legacy_serial_ports();
 
 	smp_setup_cpu_maps();
@@ -330,7 +376,32 @@ void __init setup_arch(char **cmdline_p)
 
 	if (ppc_md.setup_arch)
 		ppc_md.setup_arch();
+
+#ifdef CONFIG_ZEPTO
+
+	/* CNS is initialized in setup_arch(). we can start using print functions from here*/ 
+	{
+	    extern unsigned long __bigmem_size; /* defined in  arch/powerpc/mm/init_32.c */
+
+	    printk("Z: Zepto patched BGP %s %s %s\n", 
+		   utsname()->sysname,
+		   utsname()->release,
+		   utsname()->version);
+	    printk("Z: zepto_debug_level=%d\n",zepto_debug_level);
+	    printk("Z: __bigmem_size=%ld\n", __bigmem_size);
+	    printk("Z: options: %s%s%s%s\n",
+		   zepto_kparam_noPRE?"noPRE ":"", 
+		   zepto_kparam_noU3?"noU3 ":"", 
+		   zepto_kparam_globaltick?"globaltick ":"",
+		   zepto_kparam_tickdesync?"tickdesync ":"");
+	    lmb_dump_all();
+	    printk("Z: lmb_phys_mem_size()=>%08x  lmb_end_of_DRAM()=>%08x\n",
+		   (unsigned)lmb_phys_mem_size(), (unsigned)lmb_end_of_DRAM() );
+	}
+#endif
+
 	if ( ppc_md.progress ) ppc_md.progress("arch: exit", 0x3eab);
+
 
 	paging_init();
 
